@@ -7,9 +7,9 @@ import ManualControls from './components/ManualControls';
 import AdminDashboard from './components/AdminDashboard';
 import FinalApproval from './components/FinalApproval';
 import UploadForm from './components/UploadForm';
-import MetadataForm from './components/MetadataForm';
-import Review from './components/Review';
-import Publish from './components/Publish';
+// import MetadataForm from './components/MetadataForm';
+// import Review from './components/Review';
+// import Publish from './components/Publish';
 
 export default function App() {
   return (
@@ -22,11 +22,11 @@ export default function App() {
           {/* Student flow */}
           <Route path="/submit" element={<StudentSubmit />} />
           <Route path="/upload" element={<UploadForm />} />
-          <Route path="/metadata" element={<MetadataForm />} />
+          {/* <Route path="/metadata" element={<MetadataForm />} /> */}
           {/* Review & publish */}
           <Route path="/review" element={<LibrarianReview />} />
-          <Route path="/review/:id" element={<Review />} />
-          <Route path="/publish/:id" element={<Publish />} />
+          {/* <Route path="/review/:id" element={<Review />} /> */}
+          {/* <Route path="/publish/:id" element={<Publish />} /> */}
           {/* Admin */}
           <Route path="/controls" element={<ManualControls />} />
           <Route path="/dashboard" element={<AdminDashboard />} />

@@ -5,6 +5,7 @@ const cors = require('cors');
 const session = require('express-session');
 const routes = require('./routes/submissions');
 const { errorHandler } = require('./middleware/errorHandler');
+const fileUpload = require('express-fileupload');
 require('dotenv').config();
 
 const app = express();
@@ -31,6 +32,13 @@ app.use(
     }
   })
 );
+// File upload middleware (handles multipart/form-data securely)
+app.use(fileUpload({
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  abortOnLimit: true,
+  safeFileNames: true,
+  preserveExtension: true
+}));
 // API routes
 app.use('/api/submissions', routes);
 // Error handler
