@@ -1,18 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-
-// Hardcoded users for demo; replace with API call in production
-const users = [
-  { username: 'student1', password: 'password', role: 'student' },
-  { username: 'student2', password: 'password', role: 'student' },
-  { username: 'student3', password: 'password', role: 'student' },
-  { username: 'student4', password: 'password', role: 'student' },
-  { username: 'librarian1', password: 'password', role: 'librarian' },
-  { username: 'librarian2', password: 'password', role: 'librarian' },
-  { username: 'reviewer1', password: 'password', role: 'reviewer' },
-  { username: 'reviewer2', password: 'password', role: 'reviewer' },
-  { username: 'admin1', password: 'password', role: 'admin' }
-];
+import api from '../services/api';
 
 const roleToRoute = {
   student: '/submit',
@@ -21,58 +9,110 @@ const roleToRoute = {
   admin: '/dashboard'
 };
 
-/**
- * Login component for user authentication and role-based redirect.
- */
+const styles = {
+  body: {
+    fontFamily: "'BentonSans Book', sans-serif",
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: '100vh',
+    margin: 0,
+    backgroundColor: '#f1f1f1',
+  },
+  container: {
+    background: '#fff',
+    padding: '2rem',
+    borderRadius: '8px',
+    boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
+    width: '320px',
+  },
+  h2: {
+    fontFamily: "'BentonSans Bold'",
+    marginBottom: '1rem',
+    color: '#201436',
+    textAlign: 'center',
+  },
+  input: {
+    width: '100%',
+    padding: '0.75rem',
+    marginBottom: '1rem',
+    border: '1px solid #ccc',
+    borderRadius: '4px',
+    fontSize: '1rem',
+    boxSizing: 'border-box',
+  },
+  button: {
+    width: '100%',
+    padding: '0.75rem',
+    backgroundColor: '#4F2683',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '1rem',
+    cursor: 'pointer',
+    fontFamily: "'BentonSans Book'",
+  },
+  buttonHover: {
+    backgroundColor: '#3d1c6a',
+  },
+  error: {
+    color: 'red',
+    fontSize: '0.9rem',
+    marginBottom: '1rem',
+    textAlign: 'center',
+  },
+};
+
 export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [hover, setHover] = useState(false);
   const navigate = useNavigate();
 
   // Handle login form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    // Simulate user lookup (replace with API call in production)
-    const user = users.find(u => u.username === username && u.password === password);
-    if (!user) {
-      setError('Invalid username or password.');
-      return;
+    try {
+      const resp = await api.post('/login', { username, password });
+      const { username: u, role } = resp.data;
+      sessionStorage.setItem('authUser', btoa(u));
+      sessionStorage.setItem('authRole', btoa(role));
+      sessionStorage.setItem('expiresAt', (Date.now() + 15 * 60 * 1000).toString());
+      navigate(roleToRoute[role] || '/login');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Login failed.');
     }
-    // Store session data (base64 for demo)
-    sessionStorage.setItem('authUser', btoa(user.username));
-    sessionStorage.setItem('authRole', btoa(user.role));
-    sessionStorage.setItem('expiresAt', (Date.now() + 15 * 60 * 1000).toString());
-    // Redirect to role page
-    navigate(roleToRoute[user.role] || '/login');
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
-      <div className="bg-white p-8 rounded shadow-md w-80">
-        <h2 className="text-2xl font-bold mb-4 text-center text-purple-900">Sign In</h2>
-        {error && <div className="text-red-600 text-center mb-2">{error}</div>}
+    <div style={styles.body}>
+      <div style={styles.container}>
+        <h2 style={styles.h2}>Sign In</h2>
+        {error && <div style={styles.error}>{error}</div>}
         <form onSubmit={handleSubmit}>
           <input
+            style={styles.input}
             type="text"
             placeholder="Username"
             value={username}
             onChange={e => setUsername(e.target.value)}
-            className="w-full p-2 mb-3 border rounded"
             required
           />
           <input
+            style={styles.input}
             type="password"
             placeholder="Password"
             value={password}
             onChange={e => setPassword(e.target.value)}
-            className="w-full p-2 mb-3 border rounded"
             required
           />
           <button
             type="submit"
-            className="w-full p-2 bg-purple-800 text-white rounded hover:bg-purple-900"
+            style={hover ? { ...styles.button, ...styles.buttonHover } : styles.button}
+            onMouseEnter={() => setHover(true)}
+            onMouseLeave={() => setHover(false)}
           >
             Log In
           </button>
