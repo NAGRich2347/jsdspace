@@ -2,18 +2,26 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const styles = {
-  body: dark => ({
+  body: (dark, fontSize) => ({
     fontFamily: "'BentonSans Book', sans-serif",
     display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
     height: '100vh',
-    width: '100%',
-    overflow: 'hidden',
+    width: '100vw',
+    minHeight: 0,
+    minWidth: 0,
     margin: 0,
     padding: 0,
-    background: dark ? '#1e1e1e' : '#f1f1f1',
-    color: dark ? '#fff' : '#201436',
+    background: dark
+      ? 'radial-gradient(ellipse at 50% 40%, #231942 0%, #4F2683 80%, #18122b 100%)'
+      : 'radial-gradient(ellipse at 50% 40%, #fff 0%, #e9e6f7 80%, #cfc6e6 100%)',
+    color: dark ? '#e0d6f7' : '#201436',
     transition: 'background .3s,color .3s',
+    fontSize,
     boxSizing: 'border-box',
+    overflow: 'hidden',
+    outline: 'none',
   }),
   settingsBar: {
     position: 'fixed',
@@ -29,11 +37,13 @@ const styles = {
     width: 50,
     height: 24,
     borderRadius: 24,
-    background: dark ? '#4F2683' : '#ccc',
+    background: dark ? '#4F2683' : '#e9e6f7',
+    border: '1.5px solid #bbaed6',
     transition: '.4s',
     display: 'inline-block',
     marginLeft: 4,
     marginRight: 4,
+    boxSizing: 'border-box',
   }),
   sliderBefore: dark => ({
     content: dark ? '"🌙"' : '"☀"',
@@ -42,18 +52,69 @@ const styles = {
     height: 18,
     left: dark ? 29 : 3,
     bottom: 3,
-    background: '#fff',
+    background: dark ? '#231942' : '#fff',
     borderRadius: '50%',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     transition: '.4s',
-    color: dark ? '#1e1e1e' : undefined,
+    color: dark ? '#e0d6f7' : '#4F2683',
     fontSize: 14,
     textAlign: 'center',
+    border: '1.5px solid #bbaed6',
+    boxSizing: 'border-box',
+  }),
+  select: dark => ({
+    padding: '0.4rem 1.2rem 0.4rem 0.6rem',
+    borderRadius: 6,
+    border: '1.5px solid #bbaed6',
+    background: dark ? '#2a1a3a' : '#fff',
+    color: dark ? '#e0d6f7' : '#201436',
+    fontFamily: "'BentonSans Book'",
+    fontSize: '1rem',
+    outline: 'none',
+    transition: 'background .3s,color .3s',
+    boxSizing: 'border-box',
+    appearance: 'none',
+    WebkitAppearance: 'none',
+    MozAppearance: 'none',
+    cursor: 'pointer',
+    boxShadow: 'none',
+  }),
+  container: dark => ({
+    background: dark ? 'rgba(36, 18, 54, 0.98)' : 'rgba(255,255,255,0.98)',
+    padding: '2.5rem 2rem 2rem 2rem',
+    borderRadius: '18px',
+    boxShadow: dark
+      ? '0 8px 40px 0 rgba(79,38,131,0.55), 0 1.5px 8px 0 rgba(0,0,0,0.18)'
+      : '0 4px 32px rgba(80,40,130,0.10)',
+    width: '100%',
+    maxWidth: 700,
+    minWidth: 0,
+    margin: 'auto',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    animation: 'fadeIn .7s',
+    transition: 'background .3s,color .3s',
+    border: 'none',
+    outline: 'none',
+    boxSizing: 'border-box',
+    overflow: 'visible',
+    textAlign: 'center',
+    maxHeight: '80vh',
+    overflowY: 'auto',
+  }),
+  h1: dark => ({
+    fontFamily: "'BentonSans Bold'",
+    color: dark ? '#e0d6f7' : '#201436',
+    fontSize: '2rem',
+    marginBottom: '1.5rem',
+    letterSpacing: '-1px',
+    transition: 'color .3s',
   }),
   sidebar: (dark, open) => ({
-    position: 'absolute',
+    position: 'fixed',
     top: 0,
     left: 0,
     bottom: 0,
@@ -65,52 +126,131 @@ const styles = {
     transform: open ? 'translateX(0)' : 'translateX(-100%)',
     transition: 'transform .4s',
     zIndex: 900,
-    borderRight: '1px solid #ccc',
+    borderRight: '1.5px solid #bbaed6',
     height: '100%',
     minHeight: 0,
     boxSizing: 'border-box',
   }),
   sidebarInput: dark => ({
     width: '100%',
-    padding: '.5rem',
+    padding: '.85rem 1rem',
     marginTop: 60,
     marginBottom: '1rem',
-    border: '1px solid #ccc',
-    borderRadius: 4,
+    border: '1.5px solid #bbaed6',
+    borderRadius: 6,
     fontFamily: "'BentonSans Book'",
-    background: dark ? '#3b3b3b' : undefined,
-    color: dark ? '#fff' : undefined,
-    borderColor: dark ? '#666' : '#ccc',
+    background: dark ? '#2a1a3a' : '#f9f9f9',
+    color: dark ? '#e0d6f7' : '#201436',
+    fontSize: '1.08rem',
+    outline: 'none',
+    transition: 'border .2s, background .3s, color .3s',
+    boxSizing: 'border-box',
   }),
-  submissionItem: dark => ({
+  submissionItem: (dark, active) => ({
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: '.5rem',
     marginBottom: '.5rem',
-    background: dark ? '#2e2e2e' : '#fff',
-    border: '1px solid #ccc',
-    borderRadius: 4,
+    background: active ? (dark ? '#4F2683' : '#bbaed6') : (dark ? '#2e2e2e' : '#fff'),
+    border: '1.5px solid #bbaed6',
+    borderRadius: 6,
     cursor: 'pointer',
     fontSize: '1rem',
-    color: dark ? '#fff' : '#201436',
+    color: dark ? '#e0d6f7' : '#201436',
     transition: 'background .3s',
-  }),
-  submissionItemHover: dark => ({
-    background: dark ? '#444' : '#eaeaea',
+    fontWeight: active ? 600 : 400,
   }),
   main: open => ({
     flex: 1,
     marginLeft: open ? 260 : 0,
-    padding: '2rem',
+    padding: '2.5rem 2rem 2rem 2rem',
     transition: 'margin-left .4s',
-    overflowX: 'hidden',
-    height: '100%',
     minHeight: 0,
     boxSizing: 'border-box',
     display: 'flex',
     flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
   }),
+  pdfViewer: {
+    width: '100%',
+    maxWidth: '1350px',
+    height: 'auto',
+    maxHeight: '50vh',
+    minHeight: '300px',
+    border: '1.5px solid #bbaed6',
+    margin: '1.5rem auto',
+    boxSizing: 'border-box',
+    borderRadius: 6,
+    background: '#fff',
+    display: 'block',
+  },
+  textarea: dark => ({
+    width: '90%',
+    padding: '.85rem 1rem',
+    marginBottom: '1rem',
+    border: '1.5px solid #bbaed6',
+    borderRadius: 6,
+    fontFamily: "'BentonSans Book'",
+    fontSize: '1.08rem',
+    background: dark ? '#2a1a3a' : '#f9f9f9',
+    color: dark ? '#e0d6f7' : '#201436',
+    transition: 'border .2s, background .3s, color .3s',
+    boxSizing: 'border-box',
+    outline: 'none',
+  }),
+  inputFile: dark => ({
+    width: '90%',
+    padding: '.85rem 1rem',
+    marginBottom: '1rem',
+    border: '1.5px solid #bbaed6',
+    borderRadius: 6,
+    fontFamily: "'BentonSans Book'",
+    fontSize: '1.08rem',
+    background: dark ? '#2a1a3a' : '#f9f9f9',
+    color: dark ? '#e0d6f7' : '#201436',
+    transition: 'border .2s, background .3s, color .3s',
+    boxSizing: 'border-box',
+    outline: 'none',
+    cursor: 'pointer',
+  }),
+  button: (dark, hover) => ({
+    background: hover ? (dark ? '#3d1c6a' : '#bbaed6') : (dark ? '#4F2683' : '#a259e6'),
+    color: dark ? '#e0d6f7' : '#fff',
+    padding: '.85rem 1.5rem',
+    border: 'none',
+    borderRadius: 6,
+    cursor: 'pointer',
+    fontFamily: "'BentonSans Book'",
+    fontWeight: 600,
+    fontSize: '1.1rem',
+    marginTop: 8,
+    boxShadow: dark
+      ? '0 2px 8px rgba(79,38,131,0.25)'
+      : '0 2px 8px rgba(80,40,130,0.08)',
+    transition: 'background .3s',
+    outline: 'none',
+  }),
+  checkbox: dark => ({
+    width: 16,
+    height: 16,
+    accentColor: dark ? '#4F2683' : '#a259e6',
+    cursor: 'pointer',
+  }),
+  label: dark => ({
+    display: 'block',
+    marginBottom: 6,
+    color: dark ? '#e0d6f7' : '#201436',
+    fontWeight: 500,
+    fontSize: '1rem',
+    letterSpacing: '-0.5px',
+  }),
+  '@keyframes fadeIn': {
+    from: { opacity: 0, transform: 'translateY(30px)' },
+    to: { opacity: 1, transform: 'none' },
+  },
   hamburger: (dark, open) => ({
     position: 'fixed',
     top: 15,
@@ -127,7 +267,7 @@ const styles = {
     let style = {
       width: '100%',
       height: 3,
-      background: dark ? '#fff' : '#201436',
+      background: dark ? '#e0d6f7' : '#201436',
       transition: 'transform .3s,opacity .3s',
     };
     if (open && idx === 0) style = { ...style, transform: 'translateY(11px) rotate(45deg)' };
@@ -135,56 +275,23 @@ const styles = {
     if (open && idx === 2) style = { ...style, transform: 'translateY(-11px) rotate(-45deg)' };
     return style;
   },
-  h1: {
-    fontFamily: "'BentonSans Bold'",
-    marginTop: '1.5rem',
-    textAlign: 'center',
-  },
-  pdfViewer: {
-    width: '100%',
-    flex: 1,
-    minHeight: 0,
-    border: '1px solid #ccc',
-    margin: '1.5rem 0',
-    boxSizing: 'border-box',
-  },
-  textarea: dark => ({
-    width: '90%',
-    padding: '.5rem',
-    marginBottom: '1rem',
-    border: '1px solid #ccc',
-    borderRadius: 4,
-    fontFamily: "'BentonSans Book'",
-    background: dark ? '#3b3b3b' : undefined,
-    color: dark ? '#fff' : undefined,
-    borderColor: dark ? '#666' : '#ccc',
-    transition: 'background .3s,color .3s',
-  }),
-  inputFile: dark => ({
-    width: '90%',
-    padding: '.5rem',
-    marginBottom: '1rem',
-    border: '1px solid #ccc',
-    borderRadius: 4,
-    fontFamily: "'BentonSans Book'",
-    background: dark ? '#3b3b3b' : undefined,
-    color: dark ? '#fff' : undefined,
-    borderColor: dark ? '#666' : '#ccc',
-    transition: 'background .3s,color .3s',
-  }),
-  uploadBtn: {
-    background: '#4F2683',
-    color: '#fff',
-    padding: '.75rem 1.5rem',
-    border: 'none',
-    borderRadius: 4,
-    cursor: 'pointer',
-    transition: 'background .3s',
-    fontFamily: "'BentonSans Book'",
-  },
-  uploadBtnHover: {
-    background: '#3d1c6a',
-  },
+};
+
+// Helper to get display filename
+const getDisplayFilename = (s) => {
+  if (!s) return '';
+  if (s.filename && s.filename.match(/^.+_.+_Stage1\.pdf$/i)) return s.filename;
+  // Try to parse from user/first/last if available
+  let first = s.first || (s.user ? s.user.split('_')[0] : '');
+  let last = s.last || (s.user ? s.user.split('_')[1] : '');
+  return `${first}_${last}_Stage1.pdf`;
+};
+
+// Helper to get the max allowed width for the PDF viewer
+const getMaxPdfWidth = () => {
+  const container = document.getElementById('pdf-review-flex-container');
+  if (!container) return 1200;
+  return container.offsetWidth - 350 - 20; // controls width + gap
 };
 
 export default function LibrarianReview() {
@@ -201,6 +308,10 @@ export default function LibrarianReview() {
   const [btnHover, setBtnHover] = useState(false);
   const pdfViewerRef = useRef();
   const navigate = useNavigate();
+  const [fileInputKey, setFileInputKey] = useState(Date.now());
+  const [successMsg, setSuccessMsg] = useState('');
+  const [pdfUrl, setPdfUrl] = useState('');
+  const [pdfViewerSize, setPdfViewerSize] = useState({ width: 2000, height: window.innerHeight - 100 });
 
   // Access control: only librarians allowed
   useEffect(() => {
@@ -224,7 +335,26 @@ export default function LibrarianReview() {
   useEffect(() => {
     setSubmissions(JSON.parse(localStorage.getItem('submissions') || '[]'));
     setReceipts(JSON.parse(localStorage.getItem('receipts') || '{}'));
+    // Restore selected document, notes, and scroll position
+    const savedSelected = localStorage.getItem('librarianSelected');
+    const savedNotes = localStorage.getItem('librarianNotes');
+    const savedScroll = localStorage.getItem('librarianScroll');
+    if (savedSelected) {
+      const found = JSON.parse(localStorage.getItem('submissions') || '[]').find(s => getDisplayFilename(s) === savedSelected);
+      if (found) setSelected(found);
+    }
+    if (savedNotes) setNotes(savedNotes);
+    if (savedScroll) window.scrollTo(0, parseInt(savedScroll, 10));
   }, []);
+
+  // Persist notes, selected, and scroll position
+  useEffect(() => {
+    if (selected) localStorage.setItem('librarianSelected', getDisplayFilename(selected));
+    if (notes !== undefined) localStorage.setItem('librarianNotes', notes);
+    const onScroll = () => localStorage.setItem('librarianScroll', window.scrollY);
+    window.addEventListener('scroll', onScroll);
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [selected, notes]);
 
   // Filtered submissions for Stage1
   const filtered = submissions.filter(s => s.stage === 'Stage1' && (!search || s.filename.toLowerCase().includes(search.toLowerCase())));
@@ -236,11 +366,14 @@ export default function LibrarianReview() {
     setReceipts(newReceipts);
     localStorage.setItem('receipts', JSON.stringify(newReceipts));
     setSelected(s);
-    // Show PDF in iframe
+    // Show PDF in iframe and set blob URL for popout
     if (pdfViewerRef.current) {
       const blob = new Blob([Uint8Array.from(atob(s.content), c => c.charCodeAt(0))], { type: 'application/pdf' });
-      pdfViewerRef.current.src = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(blob);
+      pdfViewerRef.current.src = url;
+      setPdfUrl(url);
     }
+    localStorage.setItem('librarianSelected', getDisplayFilename(s));
   };
 
   // Send to reviewer
@@ -254,6 +387,9 @@ export default function LibrarianReview() {
     setSubmissions(updatedSubs);
     setSelected(null);
     setNotes('');
+    setFileInputKey(Date.now()); // Reset file input
+    setSuccessMsg('Sent to Reviewer!');
+    setTimeout(() => setSuccessMsg(''), 5000);
     alert('Sent to Reviewer');
   };
 
@@ -263,41 +399,42 @@ export default function LibrarianReview() {
   };
 
   return (
-    <div style={{ ...styles.body(dark), fontSize }}>
+    <div style={styles.body(dark, fontSize)}>
+      {/* Global style to force fullscreen, no scrollbars, no white edges */}
+      <style>{`
+        html, body, #root {
+          width: 100vw !important;
+          height: 100vh !important;
+          min-width: 0 !important;
+          min-height: 0 !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow: hidden !important;
+          background: none !important;
+          box-sizing: border-box !important;
+        }
+        body::-webkit-scrollbar, html::-webkit-scrollbar {
+          display: none !important;
+        }
+      `}</style>
       {/* Settings Bar */}
       <div style={styles.settingsBar}>
         <label style={{ display: 'flex', alignItems: 'center' }}>
-          <input
-            type="checkbox"
-            checked={dark}
-            onChange={e => setDark(e.target.checked)}
-            id="darkToggle"
-            style={{ display: 'none' }}
-          />
+          <input type="checkbox" checked={dark} onChange={e => setDark(e.target.checked)} style={{ display: 'none' }} />
           <span style={styles.slider(dark)}>
             <span style={styles.sliderBefore(dark)}>{dark ? '🌙' : '☀'}</span>
           </span>
         </label>
-        <select
-          id="fontSizeSelect"
-          value={fontSize}
-          onChange={e => setFontSize(e.target.value)}
-          style={{ fontFamily: "'BentonSans Book'" }}
-        >
+        <select value={fontSize} onChange={e => setFontSize(e.target.value)} style={styles.select(dark)}>
           <option value="14px">Default</option>
           <option value="16px">Large</option>
           <option value="12px">Small</option>
         </select>
-        <label style={{ fontFamily: "'BentonSans Book'" }}>
-          <input
-            type="checkbox"
-            checked={confirmOn}
-            onChange={e => setConfirmOn(e.target.checked)}
-            id="confirmToggle"
-          />
-          Confirm
+        <label style={{ color: dark ? '#e0d6f7' : '#201436' }}>
+          <input type="checkbox" checked={confirmOn} onChange={e => setConfirmOn(e.target.checked)} />
+          <span className="ml-1">Confirm</span>
         </label>
-        <button onClick={handleLogout} style={styles.uploadBtn}>Logout</button>
+        <button onClick={handleLogout} style={styles.button(dark, false)}>Logout</button>
       </div>
       {/* Sidebar */}
       <div style={styles.sidebar(dark, sidebarOpen)}>
@@ -313,15 +450,14 @@ export default function LibrarianReview() {
             <div
               key={i}
               style={{
-                ...styles.submissionItem(dark),
-                ...(hoverIdx === i ? styles.submissionItemHover(dark) : {}),
+                ...styles.submissionItem(dark, selected?.filename === s.filename),
+                ...(hoverIdx === i ? { background: dark ? '#444' : '#eaeaea' } : {}),
               }}
               onMouseEnter={() => setHoverIdx(i)}
               onMouseLeave={() => setHoverIdx(-1)}
               onClick={() => selectSubmission(s, i)}
             >
-              <span>{s.filename}</span>
-              <span>{receipts[s.filename] ? '✅' : '⚠️'}</span>
+              <span>{getDisplayFilename(s)}</span>
             </div>
           ))}
         </div>
@@ -333,30 +469,284 @@ export default function LibrarianReview() {
         ))}
       </div>
       {/* Main content */}
-      <div style={styles.main(sidebarOpen)}>
-        <h1 style={styles.h1}>Librarian Review</h1>
-        <div style={{ fontWeight: 500 }}>{selected ? selected.filename : ''}</div>
-        <iframe ref={pdfViewerRef} title="PDF Viewer" style={styles.pdfViewer} />
-        <textarea
-          rows={4}
-          placeholder="Your notes…"
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
-          style={styles.textarea(dark)}
-        />
-        <input
-          type="file"
-          accept=".txt,.pdf"
-          style={styles.inputFile(dark)}
-        />
-        <button
-          style={btnHover ? { ...styles.uploadBtn, ...styles.uploadBtnHover } : styles.uploadBtn}
-          onMouseEnter={() => setBtnHover(true)}
-          onMouseLeave={() => setBtnHover(false)}
-          onClick={sendToReviewer}
-        >
-          📤 Send to Reviewer
-        </button>
+              <div style={styles.main(sidebarOpen)}>
+          <div style={{
+            ...styles.container(dark),
+            maxWidth: 'none',
+            width: '100%',
+            height: '100%',
+            padding: '2.5rem 2rem 2rem 2rem',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            textAlign: 'left',
+            overflow: 'visible',
+            maxHeight: 'none',
+            overflowY: 'visible',
+          }}>
+            <h1 style={styles.h1(dark)}>Librarian Review</h1>
+            <div style={{ fontWeight: 500, marginBottom: 12 }}>{selected ? getDisplayFilename(selected) : ''}</div>
+            <div style={{ 
+              display: 'flex', 
+              gap: 20, 
+              height: 'calc(100vh - 200px)', 
+              width: '100%',
+              position: 'relative',
+              overflow: 'visible',
+              minHeight: Math.max(pdfViewerSize.height + 50, 'calc(100vh - 200px)'),
+            }} id="pdf-review-flex-container">
+            {/* PDF Viewer - Left Side */}
+            <div style={{ 
+              flex: 1, 
+              display: 'flex', 
+              flexDirection: 'column',
+              position: 'relative',
+              minHeight: '100%',
+            }}>
+              <div style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                width: pdfViewerSize.width,
+                height: pdfViewerSize.height,
+                minWidth: 400,
+                minHeight: 300,
+                maxWidth: getMaxPdfWidth(),
+                border: '2px solid #ccc',
+                borderRadius: 8,
+                overflow: 'hidden',
+                zIndex: 5,
+              }}>
+                <iframe
+                  ref={pdfViewerRef}
+                  title="PDF Viewer"
+                  style={{
+                    ...styles.pdfViewer,
+                    width: '100%',
+                    height: '100%',
+                    border: 'none',
+                    borderRadius: 0,
+                    resize: 'none',
+                  }}
+                  onLoad={e => {
+                    // Restore scroll position inside iframe if needed
+                  }}
+                />
+                {/* Resize handles */}
+                
+                {/* Right resize handle */}
+                <div style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: 0,
+                  width: 10,
+                  height: '100%',
+                  cursor: 'ew-resize',
+                  background: 'transparent',
+                  zIndex: 10,
+                }} 
+                onMouseDown={e => {
+                  e.preventDefault();
+                  const startX = e.clientX;
+                  const startWidth = pdfViewerSize.width;
+                  const maxWidth = getMaxPdfWidth();
+                  
+                  const handleMouseMove = (moveEvent) => {
+                    const deltaX = moveEvent.clientX - startX;
+                    let newWidth = Math.max(400, startWidth + deltaX);
+                    newWidth = Math.min(newWidth, maxWidth - 0); // Adjusted maxWidth
+                    setPdfViewerSize(prev => ({ ...prev, width: newWidth }));
+                  };
+                  
+                  const handleMouseUp = () => {
+                    document.removeEventListener('mousemove', handleMouseMove);
+                    document.removeEventListener('mouseup', handleMouseUp);
+                  };
+                  
+                  document.addEventListener('mousemove', handleMouseMove);
+                  document.addEventListener('mouseup', handleMouseUp);
+                }}
+                />
+                {/* Bottom resize handle */}
+                <div style={{
+                  position: 'absolute',
+                  left: 0,
+                  bottom: 0,
+                  width: '100%',
+                  height: 10,
+                  cursor: 'ns-resize',
+                  background: 'transparent',
+                  zIndex: 10,
+                }}
+                onMouseDown={e => {
+                  e.preventDefault();
+                  const startY = e.clientY;
+                  const startHeight = pdfViewerSize.height;
+                  
+                  const handleMouseMove = (moveEvent) => {
+                    const deltaY = moveEvent.clientY - startY;
+                    const newHeight = Math.max(300, startHeight + deltaY);
+                    setPdfViewerSize(prev => ({ ...prev, height: newHeight }));
+                  };
+                  
+                  const handleMouseUp = () => {
+                    document.removeEventListener('mousemove', handleMouseMove);
+                    document.removeEventListener('mouseup', handleMouseUp);
+                  };
+                  
+                  document.addEventListener('mousemove', handleMouseMove);
+                  document.addEventListener('mouseup', handleMouseUp);
+                }}
+                />
+                
+                {/* Corner resize handle */}
+                <div style={{
+                  position: 'absolute',
+                  right: 0,
+                  bottom: 0,
+                  width: 15,
+                  height: 15,
+                  cursor: 'nwse-resize',
+                  background: 'transparent',
+                  zIndex: 10,
+                }}
+                onMouseDown={e => {
+                  e.preventDefault();
+                  const startX = e.clientX;
+                  const startY = e.clientY;
+                  const startWidth = pdfViewerSize.width;
+                  const startHeight = pdfViewerSize.height;
+                  const maxWidth = getMaxPdfWidth();
+                  
+                  const handleMouseMove = (moveEvent) => {
+                    const deltaX = moveEvent.clientX - startX;
+                    const deltaY = moveEvent.clientY - startY;
+                    let newWidth = Math.max(400, startWidth + deltaX);
+                    newWidth = Math.min(newWidth, maxWidth - 0); // Adjusted maxWidth
+                    const newHeight = Math.max(300, startHeight + deltaY);
+                    setPdfViewerSize({ width: newWidth, height: newHeight });
+                  };
+                  
+                  const handleMouseUp = () => {
+                    document.removeEventListener('mousemove', handleMouseMove);
+                    document.removeEventListener('mouseup', handleMouseUp);
+                  };
+                  
+                  document.addEventListener('mousemove', handleMouseMove);
+                  document.addEventListener('mouseup', handleMouseUp);
+                }}
+                />
+              </div>
+              {pdfUrl && (
+                <button
+                  onClick={() => window.open(pdfUrl, '_blank')}
+                  style={{
+                    ...styles.button(dark),
+                    marginTop: 8,
+                    alignSelf: 'flex-start',
+                  }}
+                >
+                  Pop Out
+                </button>
+              )}
+            </div>
+            
+            {/* Controls - Right Side */}
+            <div style={{
+              width: 350,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 16,
+              padding: 20,
+              backgroundColor: dark ? '#2d3748' : '#f7fafc',
+              borderRadius: 12,
+              border: `1px solid ${dark ? '#4a5568' : '#e2e8f0'}`,
+              height: 'fit-content',
+              maxHeight: '100%',
+              overflowY: 'auto',
+              position: 'sticky',
+              top: 0,
+              alignSelf: 'flex-start',
+              zIndex: 20,
+            }}>
+              <h3 style={{
+                margin: 0,
+                fontSize: 18,
+                fontWeight: 600,
+                color: dark ? '#e2e8f0' : '#2d3748',
+              }}>
+                Review Controls
+              </h3>
+              
+              <div>
+                <label style={{
+                  display: 'block',
+                  marginBottom: 8,
+                  fontSize: 14,
+                  fontWeight: 500,
+                  color: dark ? '#e2e8f0' : '#4a5568',
+                }}>
+                  Notes:
+                </label>
+                <textarea
+                  placeholder="Enter your notes here..."
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  style={{
+                    ...styles.textarea(dark),
+                    width: '100%',
+                    minHeight: 120,
+                    resize: 'vertical',
+                  }}
+                  onBlur={e => localStorage.setItem('librarianNotes', e.target.value)}
+                />
+              </div>
+              
+                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                 <input
+                   type="checkbox"
+                   checked={confirmOn}
+                   onChange={e => setConfirmOn(e.target.checked)}
+                   style={styles.checkbox(dark)}
+                 />
+                 <label style={{
+                   ...styles.label(dark),
+                   fontSize: 14,
+                   margin: 0,
+                 }}>
+                   Confirm before opening submissions
+                 </label>
+               </div>
+               
+               <button
+                 onClick={sendToReviewer}
+                 disabled={!selected}
+                 style={{
+                   ...styles.button(dark),
+                   width: '100%',
+                   marginTop: 'auto',
+                 }}
+               >
+                 Submit Review
+               </button>
+            </div>
+          </div>
+          {successMsg && (
+            <div style={{
+              background: 'linear-gradient(90deg, #4F2683 0%, #6a4fb6 100%)',
+              color: '#fff',
+              margin: '1.5rem auto',
+              fontWeight: 700,
+              fontSize: '1.3rem',
+              borderRadius: 8,
+              padding: '1rem 2rem',
+              textAlign: 'center',
+              maxWidth: 400,
+              boxShadow: '0 2px 12px rgba(79,38,131,0.15)',
+              letterSpacing: '0.5px',
+            }}>{successMsg}</div>
+          )}
+        </div>
       </div>
     </div>
   );

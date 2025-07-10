@@ -40,44 +40,64 @@ export default function AdminDashboard() {
   };
 
   return (
-    <div className={`min-h-screen ${dark ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-900'}`}
-         style={{ fontSize }}>
-      <div className="flex justify-end p-4 gap-4">
-        <label>
-          <input type="checkbox" checked={dark} onChange={e => setDark(e.target.checked)} />
-          <span className="ml-1">Dark</span>
+    <div style={styles.body(dark, fontSize)}>
+      {/* Global style to force fullscreen, no scrollbars, no white edges */}
+      <style>{`
+        html, body, #root {
+          width: 100vw !important;
+          height: 100vh !important;
+          min-width: 0 !important;
+          min-height: 0 !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow: hidden !important;
+          background: none !important;
+          box-sizing: border-box !important;
+        }
+        body::-webkit-scrollbar, html::-webkit-scrollbar {
+          display: none !important;
+        }
+      `}</style>
+      {/* Settings Bar */}
+      <div style={styles.settingsBar}>
+        <label style={{ display: 'flex', alignItems: 'center' }}>
+          <input type="checkbox" checked={dark} onChange={e => setDark(e.target.checked)} style={{ display: 'none' }} />
+          <span style={styles.slider(dark)}>
+            <span style={styles.sliderBefore(dark)}>{dark ? '🌙' : '☀'}</span>
+          </span>
         </label>
-        <select value={fontSize} onChange={e => setFontSize(e.target.value)}>
+        <select value={fontSize} onChange={e => setFontSize(e.target.value)} style={styles.select(dark)}>
           <option value="14px">Default</option>
           <option value="16px">Large</option>
           <option value="12px">Small</option>
         </select>
-        <button onClick={handleLogout} className="px-3 py-1 bg-purple-800 text-white rounded">Logout</button>
+        <button onClick={handleLogout} style={styles.button(dark, false)}>Logout</button>
       </div>
-      <div className="container mx-auto max-w-3xl p-6 bg-white rounded shadow mt-8">
-        <h1 className="text-2xl font-bold mb-4 text-center">Administrator Dashboard</h1>
-        <div className="overflow-x-auto">
-          <table className="min-w-full border border-gray-300">
+      {/* Main Card */}
+      <div style={styles.container(dark)}>
+        <h1 style={styles.h1(dark)}>Administrator Dashboard</h1>
+        <div style={{ overflowX: 'auto', width: '100%' }}>
+          <table style={styles.table(dark)}>
             <thead>
-              <tr className="bg-gray-200">
-                <th className="px-4 py-2 border">Time</th>
-                <th className="px-4 py-2 border">User</th>
-                <th className="px-4 py-2 border">Stage</th>
-                <th className="px-4 py-2 border">Filename</th>
-                <th className="px-4 py-2 border">Notes</th>
+              <tr>
+                <th style={styles.th(dark)}>Time</th>
+                <th style={styles.th(dark)}>User</th>
+                <th style={styles.th(dark)}>Stage</th>
+                <th style={styles.th(dark)}>Filename</th>
+                <th style={styles.th(dark)}>Notes</th>
               </tr>
             </thead>
             <tbody>
               {submissions.length === 0 ? (
-                <tr><td colSpan={5} className="text-center py-4">No submissions yet.</td></tr>
+                <tr><td colSpan={5} style={styles.td(dark, true)}>No submissions yet.</td></tr>
               ) : (
                 submissions.map((s, i) => (
                   <tr key={i}>
-                    <td className="border px-2 py-1">{new Date(s.time).toLocaleString()}</td>
-                    <td className="border px-2 py-1">{s.user}</td>
-                    <td className="border px-2 py-1">{s.stage}</td>
-                    <td className="border px-2 py-1">{s.filename}</td>
-                    <td className="border px-2 py-1">{s.notes || ''}</td>
+                    <td style={styles.td(dark)}>{new Date(s.time).toLocaleString()}</td>
+                    <td style={styles.td(dark)}>{s.user}</td>
+                    <td style={styles.td(dark)}>{s.stage}</td>
+                    <td style={styles.td(dark)}>{s.filename}</td>
+                    <td style={styles.td(dark)}>{s.notes || ''}</td>
                   </tr>
                 ))
               )}

@@ -2,15 +2,26 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const styles = {
-  body: dark => ({
+  body: (dark, fontSize) => ({
     fontFamily: "'BentonSans Book', sans-serif",
     display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
     height: '100vh',
-    overflow: 'hidden',
+    width: '100vw',
+    minHeight: 0,
+    minWidth: 0,
     margin: 0,
-    background: dark ? '#1e1e1e' : '#f1f1f1',
-    color: dark ? '#fff' : '#201436',
+    padding: 0,
+    background: dark
+      ? 'radial-gradient(ellipse at 50% 40%, #231942 0%, #4F2683 80%, #18122b 100%)'
+      : 'radial-gradient(ellipse at 50% 40%, #fff 0%, #e9e6f7 80%, #cfc6e6 100%)',
+    color: dark ? '#e0d6f7' : '#201436',
     transition: 'background .3s,color .3s',
+    fontSize,
+    boxSizing: 'border-box',
+    overflow: 'hidden',
+    outline: 'none',
   }),
   settingsBar: {
     position: 'fixed',
@@ -26,11 +37,13 @@ const styles = {
     width: 50,
     height: 24,
     borderRadius: 24,
-    background: dark ? '#4F2683' : '#ccc',
+    background: dark ? '#4F2683' : '#e9e6f7',
+    border: '1.5px solid #bbaed6',
     transition: '.4s',
     display: 'inline-block',
     marginLeft: 4,
     marginRight: 4,
+    boxSizing: 'border-box',
   }),
   sliderBefore: dark => ({
     content: dark ? '"🌙"' : '"☀"',
@@ -39,67 +52,139 @@ const styles = {
     height: 18,
     left: dark ? 29 : 3,
     bottom: 3,
-    background: '#fff',
+    background: dark ? '#231942' : '#fff',
     borderRadius: '50%',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     transition: '.4s',
-    color: dark ? '#1e1e1e' : undefined,
+    color: dark ? '#e0d6f7' : '#4F2683',
     fontSize: 14,
     textAlign: 'center',
+    border: '1.5px solid #bbaed6',
+    boxSizing: 'border-box',
   }),
-  container: {
-    margin: 'auto',
-    width: '90%',
-    maxWidth: 500,
-    textAlign: 'center',
-  },
-  h1: {
-    fontFamily: "'BentonSans Bold'",
-  },
-  input: dark => ({
+  container: dark => ({
+    background: dark ? 'rgba(36, 18, 54, 0.98)' : 'rgba(255,255,255,0.98)',
+    padding: '2.5rem 2rem 2rem 2rem',
+    borderRadius: '18px',
+    boxShadow: dark
+      ? '0 8px 40px 0 rgba(79,38,131,0.55), 0 1.5px 8px 0 rgba(0,0,0,0.18)'
+      : '0 4px 32px rgba(80,40,130,0.10)',
     width: '100%',
-    padding: '.5rem',
-    margin: '.5rem 0',
-    border: '1px solid #ccc',
-    borderRadius: 4,
-    fontFamily: "'BentonSans Book'",
+    maxWidth: 500,
+    minWidth: 0,
+    margin: 'auto',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    animation: 'fadeIn .7s',
     transition: 'background .3s,color .3s',
-    background: dark ? '#3b3b3b' : undefined,
-    color: dark ? '#fff' : undefined,
-    borderColor: dark ? '#666' : '#ccc',
+    border: 'none',
+    outline: 'none',
+    boxSizing: 'border-box',
+    overflow: 'visible',
+    textAlign: 'center',
+  }),
+  h1: dark => ({
+    fontFamily: "'BentonSans Bold'",
+    color: dark ? '#e0d6f7' : '#201436',
+    fontSize: '2rem',
+    marginBottom: '1.5rem',
+    letterSpacing: '-1px',
+    transition: 'color .3s',
+  }),
+  input: (dark, hasError) => ({
+    width: '100%',
+    padding: '.85rem 1rem',
+    margin: '.5rem 0',
+    border: hasError ? (dark ? '2px solid #a259e6' : '2px solid #a259e6') : (dark ? '1.5px solid #4F2683' : '1.5px solid #bbaed6'),
+    borderRadius: 6,
+    fontFamily: "'BentonSans Book'",
+    fontSize: '1.08rem',
+    background: dark ? '#2a1a3a' : '#f9f9f9',
+    color: dark ? '#e0d6f7' : '#201436',
+    transition: 'border .2s, background .3s, color .3s',
+    boxSizing: 'border-box',
+    outline: 'none',
+  }),
+  fileInput: dark => ({
+    width: '100%',
+    padding: '.85rem 1rem',
+    margin: '.5rem 0',
+    border: dark ? '1.5px solid #4F2683' : '1.5px solid #bbaed6',
+    borderRadius: 6,
+    fontFamily: "'BentonSans Book'",
+    fontSize: '1.08rem',
+    background: dark ? '#2a1a3a' : '#f9f9f9',
+    color: dark ? '#e0d6f7' : '#201436',
+    transition: 'border .2s, background .3s, color .3s',
+    boxSizing: 'border-box',
+    outline: 'none',
+    cursor: 'pointer',
   }),
   textarea: dark => ({
     width: '100%',
-    padding: '.5rem',
+    padding: '.85rem 1rem',
     margin: '.5rem 0',
-    border: '1px solid #ccc',
-    borderRadius: 4,
+    border: dark ? '1.5px solid #4F2683' : '1.5px solid #bbaed6',
+    borderRadius: 6,
     fontFamily: "'BentonSans Book'",
-    transition: 'background .3s,color .3s',
-    background: dark ? '#3b3b3b' : undefined,
-    color: dark ? '#fff' : undefined,
-    borderColor: dark ? '#666' : '#ccc',
+    fontSize: '1.08rem',
+    background: dark ? '#2a1a3a' : '#f9f9f9',
+    color: dark ? '#e0d6f7' : '#201436',
+    transition: 'border .2s, background .3s, color .3s',
+    boxSizing: 'border-box',
+    outline: 'none',
   }),
-  button: {
-    padding: '.75rem 1.5rem',
-    background: '#4F2683',
-    color: '#fff',
+  select: dark => ({
+    padding: '0.4rem 1.2rem 0.4rem 0.6rem',
+    borderRadius: 6,
+    border: '1.5px solid #bbaed6',
+    background: dark ? '#2a1a3a' : '#fff',
+    color: dark ? '#e0d6f7' : '#201436',
+    fontFamily: "'BentonSans Book'",
+    fontSize: '1rem',
+    outline: 'none',
+    transition: 'background .3s,color .3s',
+    boxSizing: 'border-box',
+    appearance: 'none',
+    WebkitAppearance: 'none',
+    MozAppearance: 'none',
+    cursor: 'pointer',
+    boxShadow: 'none',
+  }),
+  button: (dark, hover) => ({
+    padding: '.85rem 1.5rem',
+    background: hover ? (dark ? '#3d1c6a' : '#bbaed6') : (dark ? '#4F2683' : '#a259e6'),
+    color: dark ? '#e0d6f7' : '#fff',
     border: 'none',
-    borderRadius: 4,
+    borderRadius: 6,
     cursor: 'pointer',
     fontFamily: "'BentonSans Book'",
-    transition: 'background .3s',
+    fontWeight: 600,
+    fontSize: '1.1rem',
     marginTop: 8,
-  },
-  buttonHover: {
-    background: '#3d1c6a',
-  },
-  alert: {
+    boxShadow: dark
+      ? '0 2px 8px rgba(79,38,131,0.25)'
+      : '0 2px 8px rgba(80,40,130,0.08)',
+    transition: 'background .3s',
+    outline: 'none',
+  }),
+  alert: dark => ({
     marginTop: '1rem',
-    color: 'green',
+    color: dark ? '#b6f7b6' : 'green',
     display: 'block',
+    fontWeight: 500,
+    fontSize: '1rem',
+    letterSpacing: '-0.5px',
+    minHeight: 24,
+    textAlign: 'center',
+    transition: 'color .3s',
+  }),
+  '@keyframes fadeIn': {
+    from: { opacity: 0, transform: 'translateY(30px)' },
+    to: { opacity: 1, transform: 'none' },
   },
 };
 
@@ -180,7 +265,46 @@ export default function StudentSubmit() {
   };
 
   return (
-    <div style={{ ...styles.body(dark), fontSize }}>
+    <div style={{ ...styles.body(dark, fontSize) }}>
+      {/* Global style to force fullscreen, no scrollbars, no white edges */}
+      <style>{`
+        html, body, #root {
+          width: 100vw !important;
+          height: 100vh !important;
+          min-width: 0 !important;
+          min-height: 0 !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow: hidden !important;
+          background: none !important;
+          box-sizing: border-box !important;
+        }
+        body::-webkit-scrollbar, html::-webkit-scrollbar {
+          display: none !important;
+        }
+        input[type='file']::file-selector-button {
+          padding: 0.4rem 1.2rem;
+          border-radius: 6px;
+          border: 1.5px solid #bbaed6;
+          background: ${dark ? '#2a1a3a' : '#fff'};
+          color: ${dark ? '#e0d6f7' : '#201436'};
+          font-family: 'BentonSans Book', sans-serif;
+          font-size: 1rem;
+          cursor: pointer;
+          transition: background .3s, color .3s, border-color .3s;
+        }
+        input[type='file']::-webkit-file-upload-button {
+          padding: 0.4rem 1.2rem;
+          border-radius: 6px;
+          border: 1.5px solid #bbaed6;
+          background: ${dark ? '#2a1a3a' : '#fff'};
+          color: ${dark ? '#e0d6f7' : '#201436'};
+          font-family: 'BentonSans Book', sans-serif;
+          font-size: 1rem;
+          cursor: pointer;
+          transition: background .3s, color .3s, border-color .3s;
+        }
+      `}</style>
       {/* Settings Bar */}
       <div style={styles.settingsBar}>
         <label style={{ display: 'flex', alignItems: 'center' }}>
@@ -199,7 +323,7 @@ export default function StudentSubmit() {
           id="fontSizeSelect"
           value={fontSize}
           onChange={e => setFontSize(e.target.value)}
-          style={{ fontFamily: "'BentonSans Book'" }}
+          style={styles.select(dark)}
         >
           <option value="14px">Default</option>
           <option value="16px">Large</option>
@@ -214,30 +338,30 @@ export default function StudentSubmit() {
           />
           Confirm
         </label>
-        <button onClick={handleLogout} style={styles.button}>Logout</button>
+        <button onClick={handleLogout} style={styles.button(dark, hover)} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>Logout</button>
       </div>
       {/* Main Form */}
-      <div style={styles.container}>
-        <h1 style={styles.h1}>Submit Dissertation</h1>
+      <div style={styles.container(dark)}>
+        <h1 style={styles.h1(dark)}>Submit Dissertation</h1>
         <input
           type="text"
           placeholder="First Name"
           value={first}
           onChange={e => setFirst(e.target.value)}
-          style={styles.input(dark)}
+          style={styles.input(dark, false)}
         />
         <input
           type="text"
           placeholder="Last Name"
           value={last}
           onChange={e => setLast(e.target.value)}
-          style={styles.input(dark)}
+          style={styles.input(dark, false)}
         />
         <input
           type="file"
           accept=".pdf"
           onChange={e => setFile(e.target.files[0])}
-          style={styles.input(dark)}
+          style={styles.fileInput(dark)}
         />
         <textarea
           rows={4}
@@ -248,13 +372,13 @@ export default function StudentSubmit() {
         />
         <button
           onClick={handleSubmit}
-          style={hover ? { ...styles.button, ...styles.buttonHover } : styles.button}
+          style={styles.button(dark, hover)}
           onMouseEnter={() => setHover(true)}
           onMouseLeave={() => setHover(false)}
         >
           📤 Submit
         </button>
-        {alert && <div style={styles.alert}>{alert}</div>}
+        {alert && <div style={styles.alert(dark)}>{alert}</div>}
       </div>
     </div>
   );

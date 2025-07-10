@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Login from './components/Login';
 import StudentSubmit from './components/StudentSubmit';
 import LibrarianReview from './components/LibrarianReview';
@@ -11,20 +11,45 @@ import UploadForm from './components/UploadForm';
 // import Review from './components/Review';
 // import Publish from './components/Publish';
 
-export default function App() {
+function AppRoutes() {
+  const location = useLocation();
+  const isLogin = location.pathname === '/login';
+  const isStudentSubmit = location.pathname === '/submit';
+  const isLibrarianReview = location.pathname === '/review';
+  if (isLogin) {
+    return (
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="*" element={<Navigate to="/login" />} />
+      </Routes>
+    );
+  }
+  if (isStudentSubmit) {
+    return (
+      <Routes>
+        <Route path="/submit" element={<StudentSubmit />} />
+        <Route path="*" element={<Navigate to="/submit" />} />
+      </Routes>
+    );
+  }
+  if (isLibrarianReview) {
+    return (
+      <Routes>
+        <Route path="/review" element={<LibrarianReview />} />
+        <Route path="*" element={<Navigate to="/review" />} />
+      </Routes>
+    );
+  }
   return (
-    <BrowserRouter>
+    <>
       <header className="bg-blue-600 text-white p-4 text-xl">DSpace Workflow</header>
       <div className="p-6">
         <Routes>
-          {/* Authentication */}
-          <Route path="/login" element={<Login />} />
           {/* Student flow */}
-          <Route path="/submit" element={<StudentSubmit />} />
           <Route path="/upload" element={<UploadForm />} />
           {/* <Route path="/metadata" element={<MetadataForm />} /> */}
           {/* Review & publish */}
-          <Route path="/review" element={<LibrarianReview />} />
+          {/* <Route path="/review" element={<LibrarianReview />} /> */}
           {/* <Route path="/review/:id" element={<Review />} /> */}
           {/* <Route path="/publish/:id" element={<Publish />} /> */}
           {/* Admin */}
@@ -35,6 +60,14 @@ export default function App() {
           <Route path="/" element={<Navigate to="/login" />} />
         </Routes>
       </div>
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AppRoutes />
     </BrowserRouter>
   );
 }
