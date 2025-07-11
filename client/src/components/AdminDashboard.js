@@ -31,12 +31,148 @@ export default function AdminDashboard() {
 
   // Load submissions
   useEffect(() => {
-    setSubmissions(JSON.parse(localStorage.getItem('submissions') || '[]'));
+    const storedSubmissions = JSON.parse(localStorage.getItem('submissions') || '[]');
+    console.log('Loaded submissions:', storedSubmissions); // Debug log
+    setSubmissions(storedSubmissions);
   }, []);
 
   const handleLogout = () => {
     sessionStorage.clear();
     navigate('/login');
+  };
+
+  const refreshSubmissions = () => {
+    const storedSubmissions = JSON.parse(localStorage.getItem('submissions') || '[]');
+    console.log('Refreshed submissions:', storedSubmissions); // Debug log
+    setSubmissions(storedSubmissions);
+  };
+
+  const addSampleData = () => {
+    const sampleSubmissions = [
+      {
+        time: Date.now() - 3600000, // 1 hour ago
+        user: 'john.doe',
+        stage: 'Stage1',
+        filename: 'john_doe_Stage1.pdf',
+        notes: 'Initial submission'
+      },
+      {
+        time: Date.now() - 7200000, // 2 hours ago
+        user: 'jane.smith',
+        stage: 'Stage2',
+        filename: 'jane_smith_Stage2.pdf',
+        notes: 'Reviewed by librarian'
+      },
+      {
+        time: Date.now() - 10800000, // 3 hours ago
+        user: 'bob.wilson',
+        stage: 'Stage3',
+        filename: 'bob_wilson_Stage3.pdf',
+        notes: 'Final approval pending'
+      }
+    ];
+    localStorage.setItem('submissions', JSON.stringify(sampleSubmissions));
+    setSubmissions(sampleSubmissions);
+  };
+
+  // Add styles object at the top of the file
+  const styles = {
+    body: (dark, fontSize) => ({
+      fontFamily: "'BentonSans Book', sans-serif",
+      display: 'flex',
+      flexDirection: 'column',
+      minHeight: '100vh',
+      margin: 0,
+      background: dark ? '#1e1e1e' : '#f1f1f1',
+      color: dark ? '#fff' : '#201436',
+      transition: 'background .3s,color .3s',
+      fontSize,
+      boxSizing: 'border-box',
+    }),
+    settingsBar: {
+      position: 'fixed',
+      top: 15,
+      right: 20,
+      display: 'flex',
+      gap: '1rem',
+      alignItems: 'center',
+      zIndex: 1000,
+    },
+    select: dark => ({
+      fontFamily: "'BentonSans Book'",
+      borderRadius: 4,
+      border: '1px solid #ccc',
+      padding: '.4rem 1rem',
+      background: dark ? '#2e2e2e' : '#fff',
+      color: dark ? '#fff' : '#201436',
+      fontSize: '1rem',
+      outline: 'none',
+      transition: 'background .3s,color .3s',
+    }),
+    button: (dark, hover) => ({
+      padding: '.5rem 1rem',
+      border: 'none',
+      background: '#4F2683',
+      color: '#fff',
+      borderRadius: 4,
+      fontFamily: "'BentonSans Book'",
+      fontWeight: 600,
+      fontSize: '1rem',
+      cursor: 'pointer',
+      transition: 'background .3s',
+      outline: 'none',
+      opacity: hover ? 0.85 : 1,
+    }),
+    container: dark => ({
+      marginTop: 60,
+      padding: '2rem',
+      flex: 1,
+      overflow: 'auto',
+      background: 'none',
+      borderRadius: 0,
+      boxShadow: 'none',
+      width: '100%',
+      maxWidth: '100vw',
+      minWidth: 0,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'stretch',
+      boxSizing: 'border-box',
+    }),
+    h1: dark => ({
+      fontFamily: "'BentonSans Bold'",
+      textAlign: 'center',
+      color: dark ? '#fff' : '#201436',
+      fontSize: '2rem',
+      margin: 0,
+      marginBottom: '1.5rem',
+      letterSpacing: '-1px',
+      transition: 'color .3s',
+    }),
+    table: dark => ({
+      width: '100%',
+      borderCollapse: 'collapse',
+      marginTop: '1rem',
+      background: 'none',
+    }),
+    th: dark => ({
+      background: dark ? '#2e2e2e' : '#eee',
+      color: dark ? '#fff' : '#201436',
+      border: dark ? '1px solid #555' : '1px solid #ccc',
+      padding: '.5rem',
+      textAlign: 'left',
+      fontWeight: 600,
+      fontFamily: "'BentonSans Book'",
+    }),
+    td: (dark, empty) => ({
+      background: 'none',
+      color: dark ? '#fff' : '#201436',
+      border: dark ? '1px solid #555' : '1px solid #ccc',
+      padding: '.5rem',
+      textAlign: 'left',
+      fontFamily: "'BentonSans Book'",
+      opacity: empty ? 0.7 : 1,
+    }),
   };
 
   return (
@@ -60,17 +196,17 @@ export default function AdminDashboard() {
       `}</style>
       {/* Settings Bar */}
       <div style={styles.settingsBar}>
-        <label style={{ display: 'flex', alignItems: 'center' }}>
-          <input type="checkbox" checked={dark} onChange={e => setDark(e.target.checked)} style={{ display: 'none' }} />
-          <span style={styles.slider(dark)}>
-            <span style={styles.sliderBefore(dark)}>{dark ? '🌙' : '☀'}</span>
-          </span>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input type="checkbox" checked={dark} onChange={e => setDark(e.target.checked)} />
+          <span style={{ marginLeft: 6 }}>{dark ? '🌙' : '☀'}</span>
         </label>
         <select value={fontSize} onChange={e => setFontSize(e.target.value)} style={styles.select(dark)}>
           <option value="14px">Default</option>
           <option value="16px">Large</option>
           <option value="12px">Small</option>
         </select>
+        <button onClick={refreshSubmissions} style={styles.button(dark, false)}>🔄 Refresh</button>
+        <button onClick={addSampleData} style={styles.button(dark, false)}>📊 Sample Data</button>
         <button onClick={handleLogout} style={styles.button(dark, false)}>Logout</button>
       </div>
       {/* Main Card */}

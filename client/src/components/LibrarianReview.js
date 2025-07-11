@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Document, Page, pdfjs } from 'react-pdf';
+import 'react-pdf/dist/Page/AnnotationLayer.css';
+import 'react-pdf/dist/Page/TextLayer.css';
+// Remove: import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.js';
+pdfjs.GlobalWorkerOptions.workerSrc = `${process.env.PUBLIC_URL}/pdf.worker.min.js`;
 
 const styles = {
   body: (dark, fontSize) => ({
@@ -134,7 +139,7 @@ const styles = {
   sidebarInput: dark => ({
     width: '100%',
     padding: '.85rem 1rem',
-    marginTop: 60,
+    marginTop: 100, // was 60, now 100 for better alignment
     marginBottom: '1rem',
     border: '1.5px solid #bbaed6',
     borderRadius: 6,
@@ -253,8 +258,8 @@ const styles = {
   },
   hamburger: (dark, open) => ({
     position: 'fixed',
-    top: 15,
-    left: 15,
+    top: 18, // Match settings bar top
+    left: 28, // Match settings bar right spacing, but on left
     display: 'flex',
     flexDirection: 'column',
     justifyContent: 'space-between',
@@ -287,13 +292,6 @@ const getDisplayFilename = (s) => {
   return `${first}_${last}_Stage1.pdf`;
 };
 
-// Helper to get the max allowed width for the PDF viewer
-const getMaxPdfWidth = () => {
-  const container = document.getElementById('pdf-review-flex-container');
-  if (!container) return 1200;
-  return container.offsetWidth - 350 - 20; // controls width + gap
-};
-
 export default function LibrarianReview() {
   const [dark, setDark] = useState(localStorage.getItem('theme') === 'dark');
   const [fontSize, setFontSize] = useState(localStorage.getItem('fontSize') || '14px');
@@ -312,6 +310,13 @@ export default function LibrarianReview() {
   const [successMsg, setSuccessMsg] = useState('');
   const [pdfUrl, setPdfUrl] = useState('');
   const [pdfViewerSize, setPdfViewerSize] = useState({ width: 2000, height: window.innerHeight - 100 });
+  // Add state for settings panel
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const REVIEW_CONTROLS_WIDTH = 350;
+  const HORIZONTAL_GAP = 20; // matches the gap and review controls padding
+  const CONTAINER_HORIZONTAL_PADDING = 32; // 2rem in px
+  const CONTAINER_VERTICAL_PADDING = 40; // 2.5rem in px
 
   // Access control: only librarians allowed
   useEffect(() => {
@@ -366,13 +371,11 @@ export default function LibrarianReview() {
     setReceipts(newReceipts);
     localStorage.setItem('receipts', JSON.stringify(newReceipts));
     setSelected(s);
-    // Show PDF in iframe and set blob URL for popout
-    if (pdfViewerRef.current) {
-      const blob = new Blob([Uint8Array.from(atob(s.content), c => c.charCodeAt(0))], { type: 'application/pdf' });
-      const url = URL.createObjectURL(blob);
-      pdfViewerRef.current.src = url;
-      setPdfUrl(url);
-    }
+    // Set blob URL for popout
+    const blob = new Blob([Uint8Array.from(atob(s.content), c => c.charCodeAt(0))], { type: 'application/pdf' });
+    let url = URL.createObjectURL(blob);
+    url += '#zoom=page-fit'; // PDF.js fill viewer
+    setPdfUrl(url);
     localStorage.setItem('librarianSelected', getDisplayFilename(s));
   };
 
@@ -398,8 +401,18 @@ export default function LibrarianReview() {
     navigate('/login');
   };
 
+  // Update getMaxPdfWidth to dynamically calculate max width
+  const getMaxPdfWidth = () => {
+    // window.innerWidth - sidebar (if open) - review controls - gaps - container paddings
+    const sidebarWidth = sidebarOpen ? 260 : 0;
+    const totalGaps = HORIZONTAL_GAP + CONTAINER_HORIZONTAL_PADDING;
+    return (
+      window.innerWidth - sidebarWidth - REVIEW_CONTROLS_WIDTH - totalGaps * 2
+    );
+  };
+
   return (
-    <div style={styles.body(dark, fontSize)}>
+    <div style={{ ...styles.body(dark, fontSize), paddingTop: 64 }}> {/* Add top padding for hamburger/settings */}
       {/* Global style to force fullscreen, no scrollbars, no white edges */}
       <style>{`
         html, body, #root {
@@ -417,22 +430,39 @@ export default function LibrarianReview() {
           display: none !important;
         }
       `}</style>
-      {/* Settings Bar */}
-      <div style={styles.settingsBar}>
-        <label style={{ display: 'flex', alignItems: 'center' }}>
+      {/* Add back a visible settings bar at the top right */}
+      <div style={{
+        position: 'fixed',
+        top: 18,
+        right: 28,
+        zIndex: 2001,
+        background: dark ? 'rgba(36,18,54,0.98)' : '#f7fafc',
+        borderRadius: 12,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+        padding: '1rem 1.5rem',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 18,
+        marginBottom: '2.5rem', // Add vertical space below the bar
+      }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <input type="checkbox" checked={dark} onChange={e => setDark(e.target.checked)} style={{ display: 'none' }} />
           <span style={styles.slider(dark)}>
             <span style={styles.sliderBefore(dark)}>{dark ? '🌙' : '☀'}</span>
           </span>
+          <span style={{ color: dark ? '#e0d6f7' : '#201436', fontWeight: 500 }}>Dark Mode</span>
         </label>
-        <select value={fontSize} onChange={e => setFontSize(e.target.value)} style={styles.select(dark)}>
-          <option value="14px">Default</option>
-          <option value="16px">Large</option>
-          <option value="12px">Small</option>
-        </select>
-        <label style={{ color: dark ? '#e0d6f7' : '#201436' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ color: dark ? '#e0d6f7' : '#201436', fontWeight: 500 }}>Font Size</span>
+          <select value={fontSize} onChange={e => setFontSize(e.target.value)} style={styles.select(dark)}>
+            <option value="14px">Default</option>
+            <option value="16px">Large</option>
+            <option value="12px">Small</option>
+          </select>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: dark ? '#e0d6f7' : '#201436', fontWeight: 500 }}>
           <input type="checkbox" checked={confirmOn} onChange={e => setConfirmOn(e.target.checked)} />
-          <span className="ml-1">Confirm</span>
+          Confirm
         </label>
         <button onClick={handleLogout} style={styles.button(dark, false)}>Logout</button>
       </div>
@@ -463,75 +493,115 @@ export default function LibrarianReview() {
         </div>
       </div>
       {/* Hamburger */}
-      <div style={styles.hamburger(dark, sidebarOpen)} onClick={() => setSidebarOpen(!sidebarOpen)}>
+      <div
+        style={{
+          ...styles.hamburger(dark, sidebarOpen),
+          top: 33, // Vertically center hamburger with settings bar
+          left: 28,
+        }}
+        onClick={() => setSidebarOpen(!sidebarOpen)}
+      >
         {[0, 1, 2].map(idx => (
           <div key={idx} style={styles.hamburgerBar(dark, sidebarOpen, idx)}></div>
         ))}
       </div>
       {/* Main content */}
-              <div style={styles.main(sidebarOpen)}>
+      <div style={styles.main(sidebarOpen)}>
+        <div style={{
+          ...styles.container(dark),
+          maxWidth: 'none',
+          width: '100%',
+          height: '100%',
+          padding: '2.5rem 2rem 2rem 2rem',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-start',
+          textAlign: 'left',
+          overflow: 'visible',
+          maxHeight: 'none',
+          overflowY: 'visible',
+          marginTop: '5.5rem', // Add vertical space below the settings bar
+        }}>
+          <h1 style={styles.h1(dark)}>Librarian Review</h1>
+          <div style={{ fontWeight: 500, marginBottom: 12 }}>{selected ? getDisplayFilename(selected) : ''}</div>
           <div style={{
-            ...styles.container(dark),
-            maxWidth: 'none',
-            width: '100%',
-            height: '100%',
-            padding: '2.5rem 2rem 2rem 2rem',
             display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'flex-start',
-            textAlign: 'left',
+            gap: HORIZONTAL_GAP,
+            height: `calc(100vh - ${CONTAINER_VERTICAL_PADDING * 2 + 120}px)`, // 120px for header/other content
+            width: '100%',
+            position: 'relative',
             overflow: 'visible',
-            maxHeight: 'none',
-            overflowY: 'visible',
-          }}>
-            <h1 style={styles.h1(dark)}>Librarian Review</h1>
-            <div style={{ fontWeight: 500, marginBottom: 12 }}>{selected ? getDisplayFilename(selected) : ''}</div>
-            <div style={{ 
-              display: 'flex', 
-              gap: 20, 
-              height: 'calc(100vh - 200px)', 
-              width: '100%',
-              position: 'relative',
-              overflow: 'visible',
-              minHeight: Math.max(pdfViewerSize.height + 50, 'calc(100vh - 200px)'),
-            }} id="pdf-review-flex-container">
+            alignItems: 'flex-start',
+            boxSizing: 'border-box',
+            paddingBottom: CONTAINER_VERTICAL_PADDING,
+          }} id="pdf-review-flex-container">
             {/* PDF Viewer - Left Side */}
-            <div style={{ 
-              flex: 1, 
-              display: 'flex', 
+            <div style={{
+              flex: 1,
+              display: 'flex',
               flexDirection: 'column',
               position: 'relative',
               minHeight: '100%',
+              boxSizing: 'border-box',
+              paddingTop: 0,
+              paddingBottom: 0,
             }}>
               <div style={{
-                position: 'absolute',
+                position: 'relative',
                 left: 0,
                 top: 0,
                 width: pdfViewerSize.width,
-                height: pdfViewerSize.height,
+                height: Math.min(pdfViewerSize.height, window.innerHeight - CONTAINER_VERTICAL_PADDING * 2 - 120), // Cap height to background box
                 minWidth: 400,
                 minHeight: 300,
                 maxWidth: getMaxPdfWidth(),
+                maxHeight: window.innerHeight - CONTAINER_VERTICAL_PADDING * 2 - 120, // Cap max height
                 border: '2px solid #ccc',
                 borderRadius: 8,
                 overflow: 'hidden',
                 zIndex: 5,
+                background: '#fff',
+                marginTop: 0,
+                marginBottom: 0,
+                boxSizing: 'border-box',
               }}>
-                <iframe
-                  ref={pdfViewerRef}
-                  title="PDF Viewer"
-                  style={{
-                    ...styles.pdfViewer,
-                    width: '100%',
-                    height: '100%',
-                    border: 'none',
-                    borderRadius: 0,
-                    resize: 'none',
-                  }}
-                  onLoad={e => {
-                    // Restore scroll position inside iframe if needed
-                  }}
-                />
+                {/* Pop Out button absolutely positioned top-right */}
+                {pdfUrl && (
+                  <button
+                    onClick={() => window.open(pdfUrl, '_blank')}
+                    style={{
+                      position: 'absolute',
+                      top: 10,
+                      right: 10,
+                      zIndex: 20,
+                      ...styles.button(dark),
+                      margin: 0,
+                      padding: '6px 16px',
+                      fontSize: '1rem',
+                      borderRadius: 6,
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                    }}
+                  >
+                    Pop Out
+                  </button>
+                )}
+                {/* react-pdf viewer */}
+                {selected && selected.content && (
+                  <Document
+                    file={new Blob([Uint8Array.from(atob(selected.content), c => c.charCodeAt(0))], { type: 'application/pdf' })}
+                    loading="Loading PDF..."
+                    error={<div style={{ color: 'red', padding: 20 }}>Failed to load PDF.</div>}
+                    noData={<div style={{ color: 'gray', padding: 20 }}>No PDF selected.</div>}
+                  >
+                    <Page
+                      pageNumber={1}
+                      width={pdfViewerSize.width - 20}
+                      height={Math.min(pdfViewerSize.height - 20, window.innerHeight - CONTAINER_VERTICAL_PADDING * 2 - 140)}
+                      renderAnnotationLayer={false}
+                      renderTextLayer={false}
+                    />
+                  </Document>
+                )}
                 {/* Resize handles */}
                 
                 {/* Right resize handle */}
@@ -637,23 +707,13 @@ export default function LibrarianReview() {
                 }}
                 />
               </div>
-              {pdfUrl && (
-                <button
-                  onClick={() => window.open(pdfUrl, '_blank')}
-                  style={{
-                    ...styles.button(dark),
-                    marginTop: 8,
-                    alignSelf: 'flex-start',
-                  }}
-                >
-                  Pop Out
-                </button>
-              )}
             </div>
             
             {/* Controls - Right Side */}
             <div style={{
-              width: 350,
+              width: REVIEW_CONTROLS_WIDTH,
+              minWidth: REVIEW_CONTROLS_WIDTH,
+              maxWidth: REVIEW_CONTROLS_WIDTH,
               display: 'flex',
               flexDirection: 'column',
               gap: 16,
@@ -668,6 +728,7 @@ export default function LibrarianReview() {
               top: 0,
               alignSelf: 'flex-start',
               zIndex: 20,
+              boxSizing: 'border-box',
             }}>
               <h3 style={{
                 margin: 0,
@@ -691,44 +752,57 @@ export default function LibrarianReview() {
                 <textarea
                   placeholder="Enter your notes here..."
                   value={notes}
-                  onChange={e => setNotes(e.target.value)}
+                  onChange={e => {
+                    setNotes(e.target.value);
+                    // Auto-grow logic
+                    const ta = e.target;
+                    ta.style.height = 'auto';
+                    ta.style.height = ta.scrollHeight + 'px';
+                  }}
                   style={{
                     ...styles.textarea(dark),
                     width: '100%',
                     minHeight: 120,
-                    resize: 'vertical',
+                    resize: 'none', // Remove manual resize
+                    overflow: 'hidden',
+                  }}
+                  ref={el => {
+                    if (el) {
+                      el.style.height = 'auto';
+                      el.style.height = el.scrollHeight + 'px';
+                    }
                   }}
                   onBlur={e => localStorage.setItem('librarianNotes', e.target.value)}
                 />
               </div>
               
-                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                 <input
-                   type="checkbox"
-                   checked={confirmOn}
-                   onChange={e => setConfirmOn(e.target.checked)}
-                   style={styles.checkbox(dark)}
-                 />
-                 <label style={{
-                   ...styles.label(dark),
-                   fontSize: 14,
-                   margin: 0,
-                 }}>
-                   Confirm before opening submissions
-                 </label>
-               </div>
-               
-               <button
-                 onClick={sendToReviewer}
-                 disabled={!selected}
-                 style={{
-                   ...styles.button(dark),
-                   width: '100%',
-                   marginTop: 'auto',
-                 }}
-               >
-                 Submit Review
-               </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={confirmOn}
+                  onChange={e => setConfirmOn(e.target.checked)}
+                  style={styles.checkbox(dark)}
+                />
+                <label style={{
+                  ...styles.label(dark),
+                  fontSize: 14,
+                  margin: 0,
+                }}>
+                  Confirm before opening submissions
+                </label>
+              </div>
+              
+              <button
+                onClick={sendToReviewer}
+                disabled={!selected}
+                style={{
+                  ...styles.button(dark),
+                  width: '100%',
+                  marginTop: 'auto',
+                }}
+              >
+                Submit Review
+              </button>
             </div>
           </div>
           {successMsg && (
@@ -750,4 +824,4 @@ export default function LibrarianReview() {
       </div>
     </div>
   );
-}
+} 
