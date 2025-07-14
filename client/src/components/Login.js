@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 
+// Mapping of user roles to their corresponding routes after login
 const roleToRoute = {
   student: '/submit',
   librarian: '/review',
@@ -9,8 +10,10 @@ const roleToRoute = {
   admin: '/dashboard'
 };
 
+// Comprehensive styling object for the login page
+// Each style function takes theme parameters (dark/light mode) and returns appropriate CSS
 const styles = {
-  // Light/dark background gradient
+  // Light/dark background gradient for the entire page
   body: (dark, fontSize) => ({
     fontFamily: "'BentonSans Book', sans-serif",
     display: 'flex',
@@ -32,6 +35,7 @@ const styles = {
     overflow: 'hidden',
     outline: 'none',
   }),
+  // Settings bar positioned in top-right corner
   settingsBar: {
     position: 'fixed',
     top: 15,
@@ -41,6 +45,7 @@ const styles = {
     zIndex: 1000,
     alignItems: 'center',
   },
+  // Dark/light mode toggle slider styling
   slider: dark => ({
     position: 'relative',
     width: 50,
@@ -54,6 +59,7 @@ const styles = {
     marginRight: 4,
     boxSizing: 'border-box',
   }),
+  // Slider button (sun/moon icon) styling
   sliderBefore: dark => ({
     content: dark ? '"🌙"' : '"☀"',
     position: 'absolute',
@@ -73,7 +79,7 @@ const styles = {
     border: '1.5px solid ' + (dark ? '#bbaed6' : '#bbaed6'),
     boxSizing: 'border-box',
   }),
-  // Card floats above background, light or dark
+  // Main login card container styling
   container: (dark) => ({
     background: dark ? 'rgba(36, 18, 54, 0.98)' : 'rgba(255,255,255,0.98)',
     padding: '2.5rem 2rem 2rem 2rem',
@@ -95,6 +101,7 @@ const styles = {
     boxSizing: 'border-box',
     overflow: 'visible',
   }),
+  // Main heading styling
   h2: dark => ({
     fontFamily: "'BentonSans Bold'",
     marginBottom: '0.5rem',
@@ -104,12 +111,14 @@ const styles = {
     letterSpacing: '-1px',
     transition: 'color .3s',
   }),
+  // Subtitle text styling
   subtitle: dark => ({
     color: dark ? '#bbaed6' : '#6b6b6b',
     fontSize: '1.05rem',
     marginBottom: '2rem',
     textAlign: 'center',
   }),
+  // Form label styling
   label: dark => ({
     display: 'block',
     marginBottom: 6,
@@ -118,11 +127,13 @@ const styles = {
     fontSize: '1rem',
     letterSpacing: '-0.5px',
   }),
+  // Input wrapper for positioning
   inputWrap: {
     width: '100%',
     marginBottom: '1.2rem',
     position: 'relative',
   },
+  // Input field styling with error state support
   input: (dark, hasError) => ({
     width: '100%',
     padding: '0.85rem 1rem',
@@ -136,6 +147,7 @@ const styles = {
     boxSizing: 'border-box',
     fontFamily: "'BentonSans Book'",
   }),
+  // Font size selector dropdown styling
   select: dark => ({
     padding: '0.4rem 1.2rem 0.4rem 0.6rem',
     borderRadius: 6,
@@ -153,6 +165,7 @@ const styles = {
     cursor: 'pointer',
     boxShadow: 'none',
   }),
+  // Password show/hide button styling
   showHideBtn: dark => ({
     position: 'absolute',
     right: 12,
@@ -174,6 +187,7 @@ const styles = {
     outline: 'none',
     transition: 'color .3s',
   }),
+  // Submit button styling with loading state
   button: (dark, loading) => ({
     width: '100%',
     padding: '0.85rem',
@@ -195,6 +209,7 @@ const styles = {
     gap: 10,
     transition: 'background .3s',
   }),
+  // Loading spinner styling
   spinner: {
     width: 18,
     height: 18,
@@ -203,6 +218,7 @@ const styles = {
     borderRadius: '50%',
     animation: 'spin 1s linear infinite',
   },
+  // Error message styling
   error: {
     color: '#e74c3c',
     fontSize: '1rem',
@@ -213,6 +229,7 @@ const styles = {
     letterSpacing: '-0.5px',
     transition: 'color .3s',
   },
+  // CSS animations
   '@keyframes fadeIn': {
     from: { opacity: 0, transform: 'translateY(30px)' },
     to: { opacity: 1, transform: 'none' },
@@ -223,44 +240,71 @@ const styles = {
 };
 
 export default function Login() {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [dark, setDark] = useState(localStorage.getItem('theme') === 'dark');
-  const [fontSize, setFontSize] = useState(localStorage.getItem('fontSize') || '14px');
-  const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
+  // State management for form inputs and UI
+  const [username, setUsername] = useState(''); // Username input value
+  const [password, setPassword] = useState(''); // Password input value
+  const [error, setError] = useState(''); // Error message display
+  const [dark, setDark] = useState(localStorage.getItem('theme') === 'dark'); // Dark/light theme state
+  const [fontSize, setFontSize] = useState(localStorage.getItem('fontSize') || '14px'); // Font size preference
+  const [loading, setLoading] = useState(false); // Loading state for form submission
+  const navigate = useNavigate(); // React Router navigation hook
 
+  // Persist theme preference to localStorage
   useEffect(() => {
     localStorage.setItem('theme', dark ? 'dark' : 'light');
   }, [dark]);
+
+  // Apply font size to document and persist to localStorage
   useEffect(() => {
     document.documentElement.style.fontSize = fontSize;
     localStorage.setItem('fontSize', fontSize);
   }, [fontSize]);
 
-  // Handle login form submission
+  // Handle login form submission with client-side authentication
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-    try {
-      const resp = await api.post('/login', { username, password });
-      const { username: u, role } = resp.data;
-      sessionStorage.setItem('authUser', btoa(u));
+    e.preventDefault(); // Prevent default form submission
+    setError(''); // Clear any previous errors
+    setLoading(true); // Show loading state
+    
+    // Simple client-side authentication credentials
+    // All passwords match their usernames for simplicity
+    const credentials = {
+      'student': 'student',
+      'librarian': 'librarian', 
+      'reviewer1': 'reviewer1',
+      'admin': 'admin',
+      'finalreviewer': 'finalreviewer'
+    };
+    
+    // Check if provided credentials match stored credentials
+    if (credentials[username] === password) {
+      // Determine user role based on username
+      let role;
+      if (username === 'student') role = 'student';
+      else if (username === 'librarian') role = 'librarian';
+      else if (username === 'reviewer') role = 'reviewer';
+      else if (username === 'admin') role = 'admin';
+      else if (username === 'finalreviewer') role = 'reviewer';
+      else role = 'student'; // Default fallback role
+      
+      // Store authentication data in sessionStorage (base64 encoded for basic obfuscation)
+      sessionStorage.setItem('authUser', btoa(username));
       sessionStorage.setItem('authRole', btoa(role));
-      sessionStorage.setItem('expiresAt', (Date.now() + 15 * 60 * 1000).toString());
+      sessionStorage.setItem('expiresAt', (Date.now() + 15 * 60 * 1000).toString()); // 15 minute session
+      
+      // Navigate to appropriate route based on user role
       navigate(roleToRoute[role] || '/login');
-    } catch (err) {
-      setError(err.response?.data?.error || 'Login failed.');
-    } finally {
-      setLoading(false);
+    } else {
+      // Show error message for invalid credentials
+      setError('Invalid username or password.');
     }
+    
+    setLoading(false); // Hide loading state
   };
 
   return (
     <div style={styles.body(dark, fontSize)}>
-      {/* Global style to force fullscreen, no scrollbars, no white edges */}
+      {/* Global CSS to force fullscreen layout without scrollbars */}
       <style>{`
         html, body, #root {
           width: 100vw !important;
@@ -277,8 +321,10 @@ export default function Login() {
           display: none !important;
         }
       `}</style>
-      {/* Settings Bar */}
+      
+      {/* Settings Bar - Dark mode toggle and font size selector */}
       <div style={styles.settingsBar}>
+        {/* Dark/Light Mode Toggle */}
         <label style={{ display: 'flex', alignItems: 'center' }}>
           <input
             type="checkbox"
@@ -293,6 +339,8 @@ export default function Login() {
             <span style={styles.sliderBefore(dark)}>{dark ? '🌙' : '☀'}</span>
           </span>
         </label>
+        
+        {/* Font Size Selector */}
         <select
           id="fontSizeSelect"
           value={fontSize}
@@ -305,10 +353,16 @@ export default function Login() {
           <option value="12px">Small</option>
         </select>
       </div>
+      
+      {/* Main Login Form */}
       <form style={styles.container(dark)} onSubmit={handleSubmit} autoComplete="on" aria-label="Login form">
         <h2 style={styles.h2(dark)}>Sign In</h2>
         <div style={styles.subtitle(dark)}>Welcome to DSpace Workflow. Please log in to continue.</div>
+        
+        {/* Error Message Display */}
         <div style={styles.error}>{error}</div>
+        
+        {/* Username Input Field */}
         <div style={styles.inputWrap}>
           <label htmlFor="username" style={styles.label(dark)}>
             Username
@@ -328,6 +382,8 @@ export default function Login() {
             tabIndex={1}
           />
         </div>
+        
+        {/* Password Input Field */}
         <div style={styles.inputWrap}>
           <label htmlFor="password" style={styles.label(dark)}>
             Password
@@ -346,6 +402,8 @@ export default function Login() {
             tabIndex={2}
           />
         </div>
+        
+        {/* Submit Button with Loading State */}
         <button
           type="submit"
           style={styles.button(dark, loading)}
@@ -354,8 +412,54 @@ export default function Login() {
         >
           {loading && <span style={styles.spinner} aria-label="Loading" />} Log In
         </button>
+        
+        {/* Demo Links */}
+        <div style={{
+          textAlign: 'center',
+          marginTop: '1rem',
+          fontSize: '0.9rem',
+          display: 'flex',
+          justifyContent: 'center',
+          gap: '2rem',
+        }}>
+          <a
+            href="/demo"
+            style={{
+              color: dark ? '#bbaed6' : '#4F2683',
+              textDecoration: 'none',
+              borderBottom: `1px solid ${dark ? '#bbaed6' : '#4F2683'}`,
+              paddingBottom: '2px',
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.opacity = '0.7';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.opacity = '1';
+            }}
+          >
+            🎯 Progress Demo
+          </a>
+          <a
+            href="/upload-demo"
+            style={{
+              color: dark ? '#bbaed6' : '#4F2683',
+              textDecoration: 'none',
+              borderBottom: `1px solid ${dark ? '#bbaed6' : '#4F2683'}`,
+              paddingBottom: '2px',
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.opacity = '0.7';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.opacity = '1';
+            }}
+          >
+            📁 Upload Demo
+          </a>
+        </div>
       </form>
-      {/* Keyframes for fadeIn and spinner */}
+      
+      {/* CSS Animations for fadeIn and spinner effects */}
       <style>{`
         @keyframes fadeIn { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: none; } }
         @keyframes spin { to { transform: rotate(360deg); } }

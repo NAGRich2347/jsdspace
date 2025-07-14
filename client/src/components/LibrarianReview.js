@@ -1,12 +1,23 @@
+// --- LibrarianReview.js ---
+// React component for the librarian review stage of the workflow system.
+// Handles PDF review, download, preview, drag-and-drop, and submission management.
+// Librarians can approve submissions to send to final reviewers or return them to students.
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Document, Page, pdfjs } from 'react-pdf';
-import 'react-pdf/dist/Page/AnnotationLayer.css';
-import 'react-pdf/dist/Page/TextLayer.css';
-// Remove: import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.js';
-pdfjs.GlobalWorkerOptions.workerSrc = `${process.env.PUBLIC_URL}/pdf.worker.min.js`;
+import NotificationSystem from './NotificationSystem';
+import WorkflowProgress from './WorkflowProgress';
+import FileUpload from './FileUpload';
 
+/**
+ * LibrarianReview Component - Comprehensive Styling Object
+ * 
+ * This object contains all the styling for the librarian review page.
+ * Each style function takes theme parameters (dark/light mode) and returns
+ * appropriate CSS properties for responsive, accessible design.
+ */
 const styles = {
+  // Full-screen background with gradient based on theme
   body: (dark, fontSize) => ({
     fontFamily: "'BentonSans Book', sans-serif",
     display: 'flex',
@@ -28,6 +39,7 @@ const styles = {
     overflow: 'hidden',
     outline: 'none',
   }),
+  // Settings bar positioned in top-right corner for theme and font controls
   settingsBar: {
     position: 'fixed',
     top: 15,
@@ -37,6 +49,7 @@ const styles = {
     zIndex: 1000,
     alignItems: 'center',
   },
+  // Dark/light mode toggle slider styling
   slider: dark => ({
     position: 'relative',
     width: 50,
@@ -50,6 +63,7 @@ const styles = {
     marginRight: 4,
     boxSizing: 'border-box',
   }),
+  // Slider button (sun/moon icon) styling with smooth transitions
   sliderBefore: dark => ({
     content: dark ? '"🌙"' : '"☀"',
     position: 'absolute',
@@ -69,6 +83,7 @@ const styles = {
     border: '1.5px solid #bbaed6',
     boxSizing: 'border-box',
   }),
+  // Font size selector dropdown styling
   select: dark => ({
     padding: '0.4rem 1.2rem 0.4rem 0.6rem',
     borderRadius: 6,
@@ -86,6 +101,7 @@ const styles = {
     cursor: 'pointer',
     boxShadow: 'none',
   }),
+  // Main form container with glass-morphism effect
   container: dark => ({
     background: dark ? 'rgba(36, 18, 54, 0.98)' : 'rgba(255,255,255,0.98)',
     padding: '2.5rem 2rem 2rem 2rem',
@@ -110,6 +126,7 @@ const styles = {
     maxHeight: '80vh',
     overflowY: 'auto',
   }),
+  // Main heading styling with bold font and proper spacing
   h1: dark => ({
     fontFamily: "'BentonSans Bold'",
     color: dark ? '#e0d6f7' : '#201436',
@@ -118,6 +135,7 @@ const styles = {
     letterSpacing: '-1px',
     transition: 'color .3s',
   }),
+  // Sidebar for submission list with slide-in animation
   sidebar: (dark, open) => ({
     position: 'fixed',
     top: 0,
@@ -136,6 +154,7 @@ const styles = {
     minHeight: 0,
     boxSizing: 'border-box',
   }),
+  // Search input in sidebar for filtering submissions
   sidebarInput: dark => ({
     width: '100%',
     padding: '.85rem 1rem',
@@ -151,6 +170,7 @@ const styles = {
     transition: 'border .2s, background .3s, color .3s',
     boxSizing: 'border-box',
   }),
+  // Individual submission item in sidebar list
   submissionItem: (dark, active) => ({
     display: 'flex',
     justifyContent: 'space-between',
@@ -166,11 +186,11 @@ const styles = {
     transition: 'background .3s',
     fontWeight: active ? 600 : 400,
   }),
+  // Main content area that adjusts based on sidebar state
   main: open => ({
     flex: 1,
-    marginLeft: open ? 260 : 0,
     padding: '2.5rem 2rem 2rem 2rem',
-    transition: 'margin-left .4s',
+    transition: 'all .4s',
     minHeight: 0,
     boxSizing: 'border-box',
     display: 'flex',
@@ -178,7 +198,9 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
+    position: 'relative',
   }),
+  // PDF viewer container for displaying uploaded documents
   pdfViewer: {
     width: '100%',
     maxWidth: '1350px',
@@ -192,6 +214,7 @@ const styles = {
     background: '#fff',
     display: 'block',
   },
+  // Textarea for librarian comments and notes
   textarea: dark => ({
     width: '90%',
     padding: '.85rem 1rem',
@@ -206,6 +229,7 @@ const styles = {
     boxSizing: 'border-box',
     outline: 'none',
   }),
+  // File input for uploading new PDFs
   inputFile: dark => ({
     width: '90%',
     padding: '.85rem 1rem',
@@ -221,6 +245,7 @@ const styles = {
     outline: 'none',
     cursor: 'pointer',
   }),
+  // Primary action button styling
   button: (dark, hover) => ({
     background: hover ? (dark ? '#3d1c6a' : '#bbaed6') : (dark ? '#4F2683' : '#a259e6'),
     color: dark ? '#e0d6f7' : '#fff',
@@ -238,12 +263,14 @@ const styles = {
     transition: 'background .3s',
     outline: 'none',
   }),
+  // Checkbox for confirmation settings
   checkbox: dark => ({
     width: 16,
     height: 16,
     accentColor: dark ? '#4F2683' : '#a259e6',
     cursor: 'pointer',
   }),
+  // Label for form elements
   label: dark => ({
     display: 'block',
     marginBottom: 6,
@@ -252,10 +279,12 @@ const styles = {
     fontSize: '1rem',
     letterSpacing: '-0.5px',
   }),
+  // Keyframes for fade-in animation
   '@keyframes fadeIn': {
     from: { opacity: 0, transform: 'translateY(30px)' },
     to: { opacity: 1, transform: 'none' },
   },
+  // Hamburger menu icon styling
   hamburger: (dark, open) => ({
     position: 'fixed',
     top: 18, // Match settings bar top
@@ -268,6 +297,7 @@ const styles = {
     cursor: 'pointer',
     zIndex: 1000,
   }),
+  // Individual bar of the hamburger menu
   hamburgerBar: (dark, open, idx) => {
     let style = {
       width: '100%',
@@ -282,7 +312,15 @@ const styles = {
   },
 };
 
-// Helper to get display filename
+/**
+ * Helper function to get display filename from submission object
+ * 
+ * This function extracts or constructs a proper filename for display purposes.
+ * It handles both direct filename properties and constructs filenames from user data.
+ * 
+ * @param {Object} s - Submission object
+ * @returns {string} - Formatted filename for display
+ */
 const getDisplayFilename = (s) => {
   if (!s) return '';
   if (s.filename && s.filename.match(/^.+_.+_Stage1\.pdf$/i)) return s.filename;
@@ -292,64 +330,145 @@ const getDisplayFilename = (s) => {
   return `${first}_${last}_Stage1.pdf`;
 };
 
+/**
+ * Automatically rename file based on stage progression
+ * Extracts the original student name and updates the stage number
+ * 
+ * @param {string} originalFilename - The original filename (e.g., "john_doe_Stage1.pdf")
+ * @param {string} newStage - The new stage (e.g., "Stage2", "Stage3")
+ * @returns {string} - The renamed filename (e.g., "john_doe_Stage2.pdf")
+ */
+const autoRenameFile = (originalFilename, newStage) => {
+  // Extract the base name (everything before the last underscore and stage number)
+  const match = originalFilename.match(/^(.+)_Stage\d+\.pdf$/i);
+  if (match) {
+    const baseName = match[1]; // e.g., "john_doe"
+    return `${baseName}_${newStage}.pdf`;
+  }
+  // Fallback: if we can't parse the original name, just append the stage
+  return originalFilename.replace(/\.pdf$/i, `_${newStage}.pdf`);
+};
+
+/**
+ * LibrarianReview Component
+ * 
+ * This component handles the librarian review stage of the PDF workflow system.
+ * Librarians can:
+ * - View and select student submissions
+ * - Download and preview PDFs
+ * - Add comments and notes
+ * - Send submissions to final reviewers
+ * - Return submissions to students for corrections
+ * - Upload replacement PDFs via drag-and-drop
+ * 
+ * Features:
+ * - Dark/light theme support
+ * - Responsive sidebar with submission list
+ * - File validation and security measures
+ * - Drag-and-drop file upload
+ * - Notification system integration
+ * - Persistent state management
+ */
 export default function LibrarianReview() {
-  const [dark, setDark] = useState(localStorage.getItem('theme') === 'dark');
-  const [fontSize, setFontSize] = useState(localStorage.getItem('fontSize') || '14px');
-  const [confirmOn, setConfirmOn] = useState(localStorage.getItem('confirmOn') !== 'false');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const [submissions, setSubmissions] = useState([]);
-  const [receipts, setReceipts] = useState({});
-  const [selected, setSelected] = useState(null);
-  const [notes, setNotes] = useState('');
-  const [hoverIdx, setHoverIdx] = useState(-1);
-  const [btnHover, setBtnHover] = useState(false);
-  const pdfViewerRef = useRef();
-  const navigate = useNavigate();
-  const [fileInputKey, setFileInputKey] = useState(Date.now());
-  const [successMsg, setSuccessMsg] = useState('');
-  const [pdfUrl, setPdfUrl] = useState('');
-  const [pdfViewerSize, setPdfViewerSize] = useState({ width: 2000, height: window.innerHeight - 100 });
-  // Add state for settings panel
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // UI state management
+  const [dark, setDark] = useState(localStorage.getItem('theme') === 'dark'); // Dark/light theme
+  const [fontSize, setFontSize] = useState(localStorage.getItem('fontSize') || '14px'); // Font size preference
+  const [confirmOn, setConfirmOn] = useState(localStorage.getItem('confirmOn') !== 'false'); // Confirmation dialogs
+  const [sidebarOpen, setSidebarOpen] = useState(false); // Sidebar visibility
+  const [search, setSearch] = useState(''); // Search filter for submissions
+  const [settingsOpen, setSettingsOpen] = useState(false); // Settings panel visibility
+  
+  // Data state management
+  const [submissions, setSubmissions] = useState([]); // All submissions from localStorage
+  const [receipts, setReceipts] = useState({}); // Read receipts for submissions
+  const [selected, setSelected] = useState(null); // Currently selected submission
+  
+  // Form state management
+  const [notes, setNotes] = useState(''); // Librarian comments/notes
+  const [fileInputKey, setFileInputKey] = useState(Date.now()); // Key to reset file input
+  const [successMsg, setSuccessMsg] = useState(''); // Success message display
+  
+  // UI interaction state
+  const [hoverIdx, setHoverIdx] = useState(-1); // Hover state for submission items
+  const [btnHover, setBtnHover] = useState(false); // Button hover state
+  const [dragOver, setDragOver] = useState(false); // Drag-and-drop state
+  
+  // Navigation and utilities
+  const navigate = useNavigate(); // React Router navigation hook
 
   const REVIEW_CONTROLS_WIDTH = 350;
   const HORIZONTAL_GAP = 20; // matches the gap and review controls padding
   const CONTAINER_HORIZONTAL_PADDING = 32; // 2rem in px
   const CONTAINER_VERTICAL_PADDING = 40; // 2.5rem in px
 
-  // Access control: only librarians allowed
+  // Access control: verify user is authenticated as a librarian
   useEffect(() => {
-    const role = atob(sessionStorage.getItem('authRole') || '');
-    const exp = +sessionStorage.getItem('expiresAt') || 0;
+    const role = atob(sessionStorage.getItem('authRole') || ''); // Decode role from base64
+    const exp = +sessionStorage.getItem('expiresAt') || 0; // Get session expiration time
     if (role !== 'librarian' || Date.now() > exp) {
-      alert('Unauthorized');
-      navigate('/login');
+      window.alert('Unauthorized'); // Show error if not librarian or session expired
+      navigate('/login'); // Redirect to login page
     }
   }, [navigate]);
 
-  // Settings persistence
+  // Persist user preferences to localStorage and apply to document
   useEffect(() => {
-    document.documentElement.style.fontSize = fontSize;
-    localStorage.setItem('theme', dark ? 'dark' : 'light');
-    localStorage.setItem('fontSize', fontSize);
-    localStorage.setItem('confirmOn', confirmOn);
+    document.documentElement.style.fontSize = fontSize; // Apply font size to document
+    localStorage.setItem('theme', dark ? 'dark' : 'light'); // Save theme preference
+    localStorage.setItem('fontSize', fontSize); // Save font size preference
+    localStorage.setItem('confirmOn', confirmOn); // Save confirmation dialog preference
   }, [dark, fontSize, confirmOn]);
 
-  // Load submissions and receipts
+  // Load submissions from localStorage and restore application state
   useEffect(() => {
-    setSubmissions(JSON.parse(localStorage.getItem('submissions') || '[]'));
-    setReceipts(JSON.parse(localStorage.getItem('receipts') || '{}'));
-    // Restore selected document, notes, and scroll position
+    const rawSubmissions = JSON.parse(localStorage.getItem('submissions') || '[]'); // Get raw submissions
+    
+    // Convert base64 content back to File objects for display and interaction
+    const processedSubmissions = rawSubmissions.map(submission => {
+      if (submission.content && !submission.file) {
+        // Convert legacy base64 to File object for better user experience
+        try {
+          let pdfData = submission.content;
+          if (pdfData.startsWith('data:')) {
+            pdfData = pdfData.split(',')[1]; // Remove data URL prefix
+          }
+          pdfData = pdfData.replace(/\s+/g, ''); // Remove whitespace
+          
+          const binary = atob(pdfData); // Decode base64 to binary
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i); // Convert to byte array
+          }
+          
+          const blob = new Blob([bytes], { type: 'application/pdf' }); // Create blob
+          const file = new File([blob], submission.filename, { type: 'application/pdf' }); // Create File object
+          
+          return {
+            ...submission,
+            file: file, // Add File object for immediate use
+            content: null // Clear base64 content to save memory
+          };
+        } catch (error) {
+          console.error('Error converting base64 to file:', error);
+          return submission; // Return original if conversion fails
+        }
+      }
+      return submission;
+    });
+    
+    setSubmissions(processedSubmissions); // Set processed submissions
+    setReceipts(JSON.parse(localStorage.getItem('receipts') || '{}')); // Load read receipts
+    
+    // Restore previous session state (selected document, notes, scroll position)
     const savedSelected = localStorage.getItem('librarianSelected');
     const savedNotes = localStorage.getItem('librarianNotes');
     const savedScroll = localStorage.getItem('librarianScroll');
     if (savedSelected) {
-      const found = JSON.parse(localStorage.getItem('submissions') || '[]').find(s => getDisplayFilename(s) === savedSelected);
-      if (found) setSelected(found);
+      const found = processedSubmissions.find(s => getDisplayFilename(s) === savedSelected);
+      if (found) setSelected(found); // Restore selected submission
     }
-    if (savedNotes) setNotes(savedNotes);
-    if (savedScroll) window.scrollTo(0, parseInt(savedScroll, 10));
+    if (savedNotes) setNotes(savedNotes); // Restore notes
+    if (savedScroll) window.scrollTo(0, parseInt(savedScroll, 10)); // Restore scroll position
   }, []);
 
   // Persist notes, selected, and scroll position
@@ -366,34 +485,135 @@ export default function LibrarianReview() {
 
   // Select a submission
   const selectSubmission = (s, idx) => {
-    if (confirmOn && !window.confirm('Open submission?')) return;
+    if (confirmOn && !window.confirm('Select submission?')) return;
     const newReceipts = { ...receipts, [s.filename]: true };
     setReceipts(newReceipts);
     localStorage.setItem('receipts', JSON.stringify(newReceipts));
     setSelected(s);
-    // Set blob URL for popout
-    const blob = new Blob([Uint8Array.from(atob(s.content), c => c.charCodeAt(0))], { type: 'application/pdf' });
-    let url = URL.createObjectURL(blob);
-    url += '#zoom=page-fit'; // PDF.js fill viewer
-    setPdfUrl(url);
     localStorage.setItem('librarianSelected', getDisplayFilename(s));
   };
 
   // Send to reviewer
-  const sendToReviewer = () => {
-    if (!selected) return alert('Select one');
+  const sendToReviewer = async () => {
+    if (!selected) return window.alert('Select one');
     if (confirmOn && !window.confirm('Send to reviewer?')) return;
     const updatedSubs = submissions.filter(x => x !== selected);
-    const newSel = { ...selected, stage: 'Stage2', time: Date.now() };
+    
+    // Automatically rename the file to Stage2
+    const newFilename = autoRenameFile(selected.filename, 'Stage2');
+    const newSel = { 
+      ...selected, 
+      stage: 'Stage2', 
+      filename: newFilename,
+      time: Date.now() 
+    };
     updatedSubs.push(newSel);
-    localStorage.setItem('submissions', JSON.stringify(updatedSubs));
+    
+    // Convert File objects to base64 for localStorage
+    const serializableSubs = await Promise.all(updatedSubs.map(async sub => {
+      if (sub.file instanceof File) {
+        // Convert File to base64
+        const base64 = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(',')[1]);
+          reader.readAsDataURL(sub.file);
+        });
+        
+        return {
+          ...sub,
+          content: base64,
+          file: null // Remove File object for serialization
+        };
+      }
+      return sub;
+    }));
+    
+    localStorage.setItem('submissions', JSON.stringify(serializableSubs));
     setSubmissions(updatedSubs);
     setSelected(null);
     setNotes('');
     setFileInputKey(Date.now()); // Reset file input
     setSuccessMsg('Sent to Reviewer!');
     setTimeout(() => setSuccessMsg(''), 5000);
-    alert('Sent to Reviewer');
+    window.alert('Sent to Reviewer');
+  };
+
+  // Send back to student
+  const sendBackToStudent = async () => {
+    if (!selected) return window.alert('Select one');
+    
+    // Special confirmation dialog that doesn't depend on confirmOn setting
+    const confirmed = window.confirm(
+      '⚠️ CAUTION: This will send the submission back to the student.\n\n' +
+      'This action cannot be undone. Are you sure you want to continue?'
+    );
+    
+    if (!confirmed) return;
+    
+    const updatedSubs = submissions.filter(x => x !== selected);
+    
+    // Automatically rename the file back to Stage0
+    const newFilename = autoRenameFile(selected.filename, 'Stage0');
+    const newSel = { 
+      ...selected, 
+      stage: 'Stage0', 
+      filename: newFilename,
+      time: Date.now() 
+    };
+    updatedSubs.push(newSel);
+    
+    // Convert File objects to base64 for localStorage
+    const serializableSubs = await Promise.all(updatedSubs.map(async sub => {
+      if (sub.file instanceof File) {
+        // Convert File to base64
+        const base64 = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(',')[1]);
+          reader.readAsDataURL(sub.file);
+        });
+        
+        return {
+          ...sub,
+          content: base64,
+          file: null // Remove File object for serialization
+        };
+      }
+      return sub;
+    }));
+    
+    localStorage.setItem('submissions', JSON.stringify(serializableSubs));
+    setSubmissions(updatedSubs);
+    
+    // Log the "sent back" action for admin dashboard
+    const adminLog = JSON.parse(localStorage.getItem('adminLog') || '[]');
+    adminLog.push({
+      time: Date.now(),
+      user: atob(sessionStorage.getItem('authUser') || ''),
+      stage: 'SENT_BACK',
+      filename: selected.filename,
+      notes: `Sent back to student: ${selected.user}`,
+      action: 'sent_back'
+    });
+    localStorage.setItem('adminLog', JSON.stringify(adminLog));
+    
+    // Create notification for the student
+    const notifications = JSON.parse(localStorage.getItem('userNotifications') || '[]');
+    const notificationId = `notification_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    notifications.push({
+      id: notificationId,
+      filename: selected.filename,
+      targetUser: selected.user,
+      targetStage: 'Stage0',
+      time: Date.now(),
+      message: `${selected.filename} has been sent back to you for review.`
+    });
+    localStorage.setItem('userNotifications', JSON.stringify(notifications));
+    
+    setSelected(null);
+    setNotes('');
+    setFileInputKey(Date.now()); // Reset file input
+    setSuccessMsg('Sent back to Student!');
+    setTimeout(() => setSuccessMsg(''), 5000);
   };
 
   const handleLogout = () => {
@@ -401,18 +621,252 @@ export default function LibrarianReview() {
     navigate('/login');
   };
 
-  // Update getMaxPdfWidth to dynamically calculate max width
-  const getMaxPdfWidth = () => {
-    // window.innerWidth - sidebar (if open) - review controls - gaps - container paddings
-    const sidebarWidth = sidebarOpen ? 260 : 0;
-    const totalGaps = HORIZONTAL_GAP + CONTAINER_HORIZONTAL_PADDING;
-    return (
-      window.innerWidth - sidebarWidth - REVIEW_CONTROLS_WIDTH - totalGaps * 2
-    );
+  // Handle opening document from notification
+  const handleOpenDocumentFromNotification = (filename) => {
+    const submission = submissions.find(s => s.filename === filename);
+    if (submission) {
+      setSelected(submission);
+      // Scroll to the submission in the sidebar if needed
+      const submissionElement = document.querySelector(`[data-filename="${filename}"]`);
+      if (submissionElement) {
+        submissionElement.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
   };
 
+  // Download PDF
+  const downloadPDF = () => {
+    if (!selected) return window.alert('Select a submission first');
+    
+    try {
+      // If we have a File object, use it directly
+      if (selected.file instanceof File) {
+        const url = URL.createObjectURL(selected.file);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = selected.filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        return;
+      }
+      
+      // Fallback for legacy base64 data
+      if (selected.content) {
+        let pdfData = selected.content;
+        
+        // If it's a data URL, extract the base64 part
+        if (pdfData.startsWith('data:')) {
+          pdfData = pdfData.split(',')[1];
+        }
+        
+        // Clean the base64 string
+        pdfData = pdfData.replace(/\s+/g, '');
+        
+        // Decode base64 to binary
+        const binary = atob(pdfData);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        
+        // Create blob and download
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = selected.filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      console.error('Error downloading PDF:', error);
+      window.alert('Error downloading PDF. Please try again.');
+    }
+  };
+
+  // Preview PDF in new tab
+  const previewPDF = () => {
+    if (!selected) return window.alert('Select a submission first');
+    
+    try {
+      // If we have a File object, use it directly
+      if (selected.file instanceof File) {
+        const url = URL.createObjectURL(selected.file);
+        window.open(url, '_blank');
+        return;
+      }
+      
+      // Fallback for legacy base64 data
+      if (selected.content) {
+        let pdfData = selected.content;
+        
+        // If it's a data URL, extract the base64 part
+        if (pdfData.startsWith('data:')) {
+          pdfData = pdfData.split(',')[1];
+        }
+        
+        // Clean the base64 string
+        pdfData = pdfData.replace(/\s+/g, '');
+        
+        // Create data URL for preview
+        const dataUrl = `data:application/pdf;base64,${pdfData}`;
+        
+        // Open in new tab
+        window.open(dataUrl, '_blank');
+      }
+    } catch (error) {
+      console.error('Error previewing PDF:', error);
+      window.alert('Error previewing PDF. Please try again.');
+    }
+  };
+
+  // Handle drag and drop
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setDragOver(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+  };
+
+  // Sanitize input to prevent XSS
+  const sanitizeInput = (input) => {
+    if (typeof input !== 'string') return '';
+    
+    // Remove potentially dangerous HTML tags and attributes
+    return input
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+      .replace(/<object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object>/gi, '')
+      .replace(/<embed\b[^<]*(?:(?!<\/embed>)<[^<]*)*<\/embed>/gi, '')
+      .replace(/<form\b[^<]*(?:(?!<\/form>)<[^<]*)*<\/form>/gi, '')
+      .replace(/<input\b[^>]*>/gi, '')
+      .replace(/<textarea\b[^<]*(?:(?!<\/textarea>)<[^<]*)*<\/textarea>/gi, '')
+      .replace(/<select\b[^<]*(?:(?!<\/select>)<[^<]*)*<\/select>/gi, '')
+      .replace(/<button\b[^<]*(?:(?!<\/button>)<[^<]*)*<\/button>/gi, '')
+      .replace(/<link\b[^>]*>/gi, '')
+      .replace(/<meta\b[^>]*>/gi, '')
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+      .replace(/javascript:/gi, '')
+      .replace(/on\w+\s*=/gi, '')
+      .replace(/data:/gi, '')
+      .replace(/vbscript:/gi, '')
+      .replace(/expression\s*\(/gi, '')
+      .replace(/eval\s*\(/gi, '')
+      .replace(/<[^>]*>/g, '') // Remove any remaining HTML tags
+      .trim();
+  };
+
+  // Validate file size (default max 10MB)
+  const validateFileSize = (file, maxSizeMB = 10) => {
+    const maxSizeBytes = maxSizeMB * 1024 * 1024; // Convert MB to bytes
+    if (file.size > maxSizeBytes) {
+      window.alert(`File size must be under ${maxSizeMB}MB. Current file size: ${(file.size / (1024 * 1024)).toFixed(2)}MB`);
+      return false;
+    }
+    return true;
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    
+    if (!selected) {
+      window.alert('Please select a submission first');
+      return;
+    }
+
+    const files = Array.from(e.dataTransfer.files);
+    const pdfFile = files.find(file => file.type === 'application/pdf');
+    
+    if (!pdfFile) {
+      window.alert('Please drop a PDF file');
+      return;
+    }
+
+    // Validate file size
+    if (!validateFileSize(pdfFile)) {
+      return;
+    }
+
+    // Validate filename matches naming convention
+    const expectedFilename = selected.filename;
+    const droppedFilename = pdfFile.name;
+    
+    // Check if the dropped file follows the naming convention
+    if (!droppedFilename.match(/^.+_.+_Stage\d+\.pdf$/i)) {
+      window.alert('Please use the correct naming convention: first_last_StageX.pdf');
+      return;
+    }
+
+    // Automatically rename the dropped file to match the current stage
+    const renamedFile = new File([pdfFile], selected.filename, { type: 'application/pdf' });
+    
+    // Update the submission with the new file
+    const updatedSubs = submissions.map(s => {
+      if (s.filename === selected.filename) {
+        return {
+          ...s,
+          file: renamedFile, // Store the renamed File object
+          content: null, // Clear legacy base64 content
+          time: Date.now()
+        };
+      }
+      return s;
+    });
+    
+    // Convert File objects to base64 for localStorage
+    const serializableSubs = await Promise.all(updatedSubs.map(async sub => {
+      if (sub.file instanceof File) {
+        // Convert File to base64
+        const base64 = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(',')[1]);
+          reader.readAsDataURL(sub.file);
+        });
+        
+        return {
+          ...sub,
+          content: base64,
+          file: null // Remove File object for serialization
+        };
+      }
+      return sub;
+    }));
+    
+    localStorage.setItem('submissions', JSON.stringify(serializableSubs));
+    setSubmissions(updatedSubs);
+    setSelected(updatedSubs.find(s => s.filename === selected.filename));
+    setSuccessMsg('PDF updated successfully!');
+    setTimeout(() => setSuccessMsg(''), 5000);
+  };
+
+
+
   return (
-    <div style={{ ...styles.body(dark, fontSize), paddingTop: 64 }}> {/* Add top padding for hamburger/settings */}
+    <div style={{
+      ...styles.body(dark, fontSize),
+      minHeight: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'flex-start',
+      paddingTop: 0,
+      boxSizing: 'border-box',
+      background: dark
+        ? 'radial-gradient(ellipse at 50% 40%, #231942 0%, #4F2683 80%, #18122b 100%)'
+        : 'radial-gradient(ellipse at 50% 40%, #fff 0%, #e9e6f7 80%, #cfc6e6 100%)',
+    }}>
+      <NotificationSystem 
+        dark={dark} 
+        onOpenDocument={handleOpenDocumentFromNotification}
+      />
       {/* Global style to force fullscreen, no scrollbars, no white edges */}
       <style>{`
         html, body, #root {
@@ -445,30 +899,52 @@ export default function LibrarianReview() {
         gap: 18,
         marginBottom: '2.5rem', // Add vertical space below the bar
       }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <input type="checkbox" checked={dark} onChange={e => setDark(e.target.checked)} style={{ display: 'none' }} />
+        <label htmlFor="darkModeToggle" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input 
+            id="darkModeToggle"
+            name="darkMode"
+            type="checkbox" 
+            checked={dark} 
+            onChange={e => setDark(e.target.checked)} 
+            style={{ display: 'none' }} 
+          />
           <span style={styles.slider(dark)}>
             <span style={styles.sliderBefore(dark)}>{dark ? '🌙' : '☀'}</span>
           </span>
           <span style={{ color: dark ? '#e0d6f7' : '#201436', fontWeight: 500 }}>Dark Mode</span>
         </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <label htmlFor="fontSizeSelect" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ color: dark ? '#e0d6f7' : '#201436', fontWeight: 500 }}>Font Size</span>
-          <select value={fontSize} onChange={e => setFontSize(e.target.value)} style={styles.select(dark)}>
+          <select 
+            id="fontSizeSelect"
+            name="fontSize"
+            value={fontSize} 
+            onChange={e => setFontSize(e.target.value)} 
+            style={styles.select(dark)}
+          >
             <option value="14px">Default</option>
             <option value="16px">Large</option>
             <option value="12px">Small</option>
           </select>
         </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: dark ? '#e0d6f7' : '#201436', fontWeight: 500 }}>
-          <input type="checkbox" checked={confirmOn} onChange={e => setConfirmOn(e.target.checked)} />
+        <label htmlFor="confirmToggle" style={{ display: 'flex', alignItems: 'center', gap: 8, color: dark ? '#e0d6f7' : '#201436', fontWeight: 500 }}>
+          <input 
+            id="confirmToggle"
+            name="confirmOn"
+            type="checkbox" 
+            checked={confirmOn} 
+            onChange={e => setConfirmOn(e.target.checked)} 
+          />
           Confirm
         </label>
         <button onClick={handleLogout} style={styles.button(dark, false)}>Logout</button>
       </div>
       {/* Sidebar */}
       <div style={styles.sidebar(dark, sidebarOpen)}>
+        <label htmlFor="searchInput" style={{ display: 'none' }}>Search submissions</label>
         <input
+          id="searchInput"
+          name="search"
           type="text"
           placeholder="Search…"
           value={search}
@@ -506,7 +982,30 @@ export default function LibrarianReview() {
         ))}
       </div>
       {/* Main content */}
-      <div style={styles.main(sidebarOpen)}>
+      <div style={{
+        ...styles.main(sidebarOpen),
+        width: '100%',
+        maxWidth: 900,
+        // Increase maxHeight by ~10% (from 500px to 550px)
+        maxHeight: 550,
+        minHeight: 250,
+        height: 'auto',
+        // Move the box down by another 5% (from 99px to 104px)
+        margin: '104px auto 24px auto',
+        background: dark ? 'rgba(36, 18, 54, 0.98)' : 'rgba(255,255,255,0.98)',
+        borderRadius: 18,
+        boxShadow: dark
+          ? '0 8px 40px 0 rgba(79,38,131,0.55), 0 1.5px 8px 0 rgba(0,0,0,0.18)'
+          : '0 4px 32px rgba(80,40,130,0.10)',
+        overflow: 'visible',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'stretch',
+        justifyContent: 'center',
+        padding: '1.2rem 1.2rem',
+        // Ensure the box never extends past the bottom of the viewport
+        maxHeight: 'calc(100vh - 104px - 24px)', // 104px top margin, 24px bottom margin
+      }}>
         <div style={{
           ...styles.container(dark),
           maxWidth: 'none',
@@ -520,7 +1019,7 @@ export default function LibrarianReview() {
           overflow: 'visible',
           maxHeight: 'none',
           overflowY: 'visible',
-          marginTop: '5.5rem', // Add vertical space below the settings bar
+          // Remove marginTop to avoid double spacing
         }}>
           <h1 style={styles.h1(dark)}>Librarian Review</h1>
           <div style={{ fontWeight: 500, marginBottom: 12 }}>{selected ? getDisplayFilename(selected) : ''}</div>
@@ -535,178 +1034,181 @@ export default function LibrarianReview() {
             boxSizing: 'border-box',
             paddingBottom: CONTAINER_VERTICAL_PADDING,
           }} id="pdf-review-flex-container">
-            {/* PDF Viewer - Left Side */}
-            <div style={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              position: 'relative',
-              minHeight: '100%',
-              boxSizing: 'border-box',
-              paddingTop: 0,
-              paddingBottom: 0,
-            }}>
+              {/* PDF Download & Drop Zone - Left Side */}
               <div style={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
                 position: 'relative',
-                left: 0,
-                top: 0,
-                width: pdfViewerSize.width,
-                height: Math.min(pdfViewerSize.height, window.innerHeight - CONTAINER_VERTICAL_PADDING * 2 - 120), // Cap height to background box
-                minWidth: 400,
-                minHeight: 300,
-                maxWidth: getMaxPdfWidth(),
-                maxHeight: window.innerHeight - CONTAINER_VERTICAL_PADDING * 2 - 120, // Cap max height
-                border: '2px solid #ccc',
-                borderRadius: 8,
-                overflow: 'hidden',
-                zIndex: 5,
-                background: '#fff',
-                marginTop: 0,
-                marginBottom: 0,
+                minHeight: '100%',
                 boxSizing: 'border-box',
+                paddingTop: 0,
+                paddingBottom: 0,
               }}>
-                {/* Pop Out button absolutely positioned top-right */}
-                {pdfUrl && (
-                  <button
-                    onClick={() => window.open(pdfUrl, '_blank')}
-                    style={{
-                      position: 'absolute',
-                      top: 10,
-                      right: 10,
-                      zIndex: 20,
-                      ...styles.button(dark),
-                      margin: 0,
-                      padding: '6px 16px',
-                      fontSize: '1rem',
-                      borderRadius: 6,
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                    }}
-                  >
-                    Pop Out
-                  </button>
-                )}
-                {/* react-pdf viewer */}
-                {selected && selected.content && (
-                  <Document
-                    file={new Blob([Uint8Array.from(atob(selected.content), c => c.charCodeAt(0))], { type: 'application/pdf' })}
-                    loading="Loading PDF..."
-                    error={<div style={{ color: 'red', padding: 20 }}>Failed to load PDF.</div>}
-                    noData={<div style={{ color: 'gray', padding: 20 }}>No PDF selected.</div>}
-                  >
-                    <Page
-                      pageNumber={1}
-                      width={pdfViewerSize.width - 20}
-                      height={Math.min(pdfViewerSize.height - 20, window.innerHeight - CONTAINER_VERTICAL_PADDING * 2 - 140)}
-                      renderAnnotationLayer={false}
-                      renderTextLayer={false}
-                    />
-                  </Document>
-                )}
-                {/* Resize handles */}
-                
-                {/* Right resize handle */}
-                <div style={{
-                  position: 'absolute',
-                  right: 0,
-                  top: 0,
-                  width: 10,
-                  height: '100%',
-                  cursor: 'ew-resize',
-                  background: 'transparent',
-                  zIndex: 10,
-                }} 
-                onMouseDown={e => {
-                  e.preventDefault();
-                  const startX = e.clientX;
-                  const startWidth = pdfViewerSize.width;
-                  const maxWidth = getMaxPdfWidth();
-                  
-                  const handleMouseMove = (moveEvent) => {
-                    const deltaX = moveEvent.clientX - startX;
-                    let newWidth = Math.max(400, startWidth + deltaX);
-                    newWidth = Math.min(newWidth, maxWidth - 0); // Adjusted maxWidth
-                    setPdfViewerSize(prev => ({ ...prev, width: newWidth }));
-                  };
-                  
-                  const handleMouseUp = () => {
-                    document.removeEventListener('mousemove', handleMouseMove);
-                    document.removeEventListener('mouseup', handleMouseUp);
-                  };
-                  
-                  document.addEventListener('mousemove', handleMouseMove);
-                  document.addEventListener('mouseup', handleMouseUp);
-                }}
-                />
-                {/* Bottom resize handle */}
-                <div style={{
-                  position: 'absolute',
+              <div 
+                style={{
+                  position: 'relative',
                   left: 0,
-                  bottom: 0,
+                  top: 0,
                   width: '100%',
-                  height: 10,
-                  cursor: 'ns-resize',
-                  background: 'transparent',
-                  zIndex: 10,
+                  height: '100%',
+                  minWidth: 400,
+                  minHeight: 300,
+                  border: dragOver ? '3px dashed #4F2683' : '2px solid #ccc',
+                  borderRadius: 8,
+                  background: dragOver 
+                    ? (dark ? 'rgba(79, 38, 131, 0.1)' : 'rgba(79, 38, 131, 0.05)')
+                    : (dark ? '#2a1a3a' : '#f9f9f9'),
+                  marginTop: 0,
+                  marginBottom: 0,
+                  boxSizing: 'border-box',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.3s ease',
                 }}
-                onMouseDown={e => {
-                  e.preventDefault();
-                  const startY = e.clientY;
-                  const startHeight = pdfViewerSize.height;
-                  
-                  const handleMouseMove = (moveEvent) => {
-                    const deltaY = moveEvent.clientY - startY;
-                    const newHeight = Math.max(300, startHeight + deltaY);
-                    setPdfViewerSize(prev => ({ ...prev, height: newHeight }));
-                  };
-                  
-                  const handleMouseUp = () => {
-                    document.removeEventListener('mousemove', handleMouseMove);
-                    document.removeEventListener('mouseup', handleMouseUp);
-                  };
-                  
-                  document.addEventListener('mousemove', handleMouseMove);
-                  document.addEventListener('mouseup', handleMouseUp);
-                }}
-                />
-                
-                {/* Corner resize handle */}
-                <div style={{
-                  position: 'absolute',
-                  right: 0,
-                  bottom: 0,
-                  width: 15,
-                  height: 15,
-                  cursor: 'nwse-resize',
-                  background: 'transparent',
-                  zIndex: 10,
-                }}
-                onMouseDown={e => {
-                  e.preventDefault();
-                  const startX = e.clientX;
-                  const startY = e.clientY;
-                  const startWidth = pdfViewerSize.width;
-                  const startHeight = pdfViewerSize.height;
-                  const maxWidth = getMaxPdfWidth();
-                  
-                  const handleMouseMove = (moveEvent) => {
-                    const deltaX = moveEvent.clientX - startX;
-                    const deltaY = moveEvent.clientY - startY;
-                    let newWidth = Math.max(400, startWidth + deltaX);
-                    newWidth = Math.min(newWidth, maxWidth - 0); // Adjusted maxWidth
-                    const newHeight = Math.max(300, startHeight + deltaY);
-                    setPdfViewerSize({ width: newWidth, height: newHeight });
-                  };
-                  
-                  const handleMouseUp = () => {
-                    document.removeEventListener('mousemove', handleMouseMove);
-                    document.removeEventListener('mouseup', handleMouseUp);
-                  };
-                  
-                  document.addEventListener('mousemove', handleMouseMove);
-                  document.addEventListener('mouseup', handleMouseUp);
-                }}
-                />
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                {selected ? (
+                  <div style={{ textAlign: 'center', padding: '2rem' }}>
+                    <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>📄</div>
+                    <h3 style={{ 
+                      color: dark ? '#e0d6f7' : '#201436', 
+                      marginBottom: '1rem',
+                      fontSize: '1.5rem'
+                    }}>
+                      {selected.filename}
+                    </h3>
+                    <p style={{ 
+                      color: dark ? '#bbaed6' : '#666', 
+                      marginBottom: '2rem',
+                      fontSize: '1rem'
+                    }}>
+                      Ready for download and modification
+                    </p>
+                    <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+                      <button
+                        onClick={downloadPDF}
+                        style={{
+                          ...styles.button(dark),
+                          padding: '12px 24px',
+                          fontSize: '1rem',
+                          background: '#4F2683',
+                        }}
+                      >
+                        📥 Download PDF
+                      </button>
+                      <button
+                        onClick={previewPDF}
+                        style={{
+                          ...styles.button(dark),
+                          padding: '12px 24px',
+                          fontSize: '1rem',
+                          background: '#6a4fb6',
+                        }}
+                      >
+                        👁️ Preview PDF
+                      </button>
+                      <div style={{ 
+                        padding: '12px 24px',
+                        border: '2px dashed #4F2683',
+                        borderRadius: 8,
+                        color: dark ? '#e0d6f7' : '#201436',
+                        fontSize: '1rem',
+                        textAlign: 'center',
+                        minWidth: '200px'
+                      }}>
+                        📤 Drop modified PDF here
+                      </div>
+                    </div>
+                    {dragOver && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        background: 'rgba(79, 38, 131, 0.9)',
+                        color: '#fff',
+                        padding: '1rem 2rem',
+                        borderRadius: 8,
+                        fontSize: '1.2rem',
+                        fontWeight: 600,
+                        zIndex: 100,
+                      }}>
+                        Drop PDF to update
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '2rem' }}>
+                    <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>📋</div>
+                    <h3 style={{ 
+                      color: dark ? '#e0d6f7' : '#201436', 
+                      marginBottom: '1rem',
+                      fontSize: '1.5rem'
+                    }}>
+                      Select a submission
+                    </h3>
+                    <p style={{ 
+                      color: dark ? '#bbaed6' : '#666', 
+                      fontSize: '1rem'
+                    }}>
+                      Choose a document from the sidebar to download and modify
+                    </p>
+                  </div>
+                )}
               </div>
+              {/* Submission Details - Directly below PDF area, inside left column */}
+              {selected && (
+                <>
+                  <div style={{
+                    marginTop: 16,
+                    padding: '12px 16px',
+                    background: dark ? 'rgba(79, 38, 131, 0.1)' : 'rgba(79, 38, 131, 0.05)',
+                    borderRadius: 8,
+                    border: `1px solid ${dark ? '#4F2683' : '#bbaed6'}`,
+                    fontSize: '0.9rem',
+                    color: dark ? '#bbaed6' : '#666',
+                    width: '100%',
+                    boxSizing: 'border-box',
+                  }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4, color: dark ? '#e0d6f7' : '#201436' }}>
+                      📅 Submission Details
+                    </div>
+                    <div style={{ marginBottom: 4 }}>
+                      <strong>Submitted:</strong> {new Date(selected.time).toLocaleString()}
+                    </div>
+                    <div style={{ marginBottom: 4 }}>
+                      <strong>Student:</strong> {selected.user || 'Unknown'}
+                    </div>
+                    {selected.notes && (
+                      <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${dark ? '#4F2683' : '#bbaed6'}` }}>
+                        <strong>Student Notes:</strong> {selected.notes}
+                      </div>
+                    )}
+                  </div>
+                  {/* Progress Bar - In its own box below submission details */}
+                  <div style={{
+                    marginTop: 16,
+                    padding: '12px 16px',
+                    background: dark ? 'rgba(79, 38, 131, 0.1)' : 'rgba(79, 38, 131, 0.05)',
+                    borderRadius: 8,
+                    border: `1px solid ${dark ? '#4F2683' : '#bbaed6'}`,
+                    width: '100%',
+                    boxSizing: 'border-box',
+                  }}>
+                    <WorkflowProgress 
+                      currentStage={selected.stage || 'Stage1'}
+                      status={selected.status || 'In Review'}
+                      dark={dark}
+                      showTimeline={true}
+                    />
+                  </div>
+                </>
+              )}
             </div>
             
             {/* Controls - Right Side */}
@@ -792,19 +1294,75 @@ export default function LibrarianReview() {
                 </label>
               </div>
               
-              <button
-                onClick={sendToReviewer}
-                disabled={!selected}
-                style={{
-                  ...styles.button(dark),
-                  width: '100%',
-                  marginTop: 'auto',
-                }}
-              >
-                Submit Review
-              </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 'auto' }}>
+                <button
+                  onClick={sendToReviewer}
+                  disabled={!selected}
+                  style={{
+                    ...styles.button(dark),
+                    width: '100%',
+                  }}
+                >
+                  Submit Review
+                </button>
+                
+                <button
+                  onClick={sendBackToStudent}
+                  disabled={!selected}
+                  title="⚠️ Send this submission back to the student for corrections"
+                  style={{
+                    ...styles.button(dark),
+                    width: '100%',
+                    backgroundColor: '#dc2626',
+                    border: '2px solid #dc2626',
+                    position: 'relative',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.backgroundColor = '#b91c1c';
+                    e.target.style.borderColor = '#b91c1c';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.backgroundColor = '#dc2626';
+                    e.target.style.borderColor = '#dc2626';
+                  }}
+                >
+                  <span style={{ marginRight: 8 }}>⚠️</span>
+                  Send Back to Student
+                </button>
+                <button
+                  onClick={() => {
+                    if (!selected) return;
+                    if (window.confirm('Are you sure you want to permanently delete this submission? This cannot be undone.')) {
+                      // Remove from submissions
+                      const updatedSubs = submissions.filter(s => s !== selected);
+                      localStorage.setItem('submissions', JSON.stringify(updatedSubs));
+                      setSubmissions(updatedSubs);
+                      setSelected(null);
+                      setNotes('');
+                      setFileInputKey(Date.now());
+                    }
+                  }}
+                  disabled={!selected}
+                  style={{
+                    ...styles.button(dark),
+                    width: '100%',
+                    backgroundColor: '#6b7280',
+                    border: '2px solid #6b7280',
+                    color: '#fff',
+                    marginTop: 8,
+                  }}
+                  title="Delete this submission permanently"
+                >
+                  🗑️ Delete Submission
+                </button>
+              </div>
             </div>
+            
           </div>
+          
+          {/* Submission Details - Below PDF area, aligned with review controls */}
+          {/* This block is now moved inside the left column */}
+          
           {successMsg && (
             <div style={{
               background: 'linear-gradient(90deg, #4F2683 0%, #6a4fb6 100%)',
@@ -820,8 +1378,14 @@ export default function LibrarianReview() {
               letterSpacing: '0.5px',
             }}>{successMsg}</div>
           )}
+          {/* Workflow Progress */}
+          {/* This block is now moved inside the left column */}
+          
         </div>
       </div>
+      {/* After the main flex row, render the progress bar as a floating box in the right gutter */}
+      {/* This block is now moved inside the left column */}
+      
     </div>
   );
 } 

@@ -1,11 +1,14 @@
+// --- FinalApproval.js ---
+// React component for the final reviewer stage of the workflow system.
+// Handles PDF review, download, preview, drag-and-drop, and submission details display.
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Document, Page, pdfjs } from 'react-pdf';
-import 'react-pdf/dist/Page/AnnotationLayer.css';
-import 'react-pdf/dist/Page/TextLayer.css';
-// Remove: import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.js';
-pdfjs.GlobalWorkerOptions.workerSrc = `${process.env.PUBLIC_URL}/pdf.worker.min.js`;
+import NotificationSystem from './NotificationSystem';
+import WorkflowProgress from './WorkflowProgress';
 
+// --- Styles object ---
+// Contains all inline style definitions for the component UI
 const styles = {
   body: (dark, fontSize) => ({
     fontFamily: "'BentonSans Book', sans-serif",
@@ -168,9 +171,8 @@ const styles = {
   }),
   main: open => ({
     flex: 1,
-    marginLeft: open ? 260 : 0,
     padding: '2.5rem 2rem 2rem 2rem',
-    transition: 'margin-left .4s',
+    transition: 'all .4s',
     minHeight: 0,
     boxSizing: 'border-box',
     display: 'flex',
@@ -178,6 +180,7 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
+    position: 'relative',
   }),
   pdfViewer: {
     width: '100%',
@@ -282,7 +285,8 @@ const styles = {
   },
 };
 
-// Helper to get display filename
+// --- Helper function ---
+// Returns the display name for a submission
 const getDisplayFilename = (s) => {
   if (!s) return '';
   if (s.filename && s.filename.match(/^.+_.+_Stage1\.pdf$/i)) return s.filename;
@@ -292,7 +296,29 @@ const getDisplayFilename = (s) => {
   return `${first}_${last}_Stage1.pdf`;
 };
 
+/**
+ * Automatically rename file based on stage progression
+ * Extracts the original student name and updates the stage number
+ * 
+ * @param {string} originalFilename - The original filename (e.g., "john_doe_Stage1.pdf")
+ * @param {string} newStage - The new stage (e.g., "Stage2", "Stage3")
+ * @returns {string} - The renamed filename (e.g., "john_doe_Stage2.pdf")
+ */
+const autoRenameFile = (originalFilename, newStage) => {
+  // Extract the base name (everything before the last underscore and stage number)
+  const match = originalFilename.match(/^(.+)_Stage\d+\.pdf$/i);
+  if (match) {
+    const baseName = match[1]; // e.g., "john_doe"
+    return `${baseName}_${newStage}.pdf`;
+  }
+  // Fallback: if we can't parse the original name, just append the stage
+  return originalFilename.replace(/\.pdf$/i, `_${newStage}.pdf`);
+};
+
+// --- Main Component ---
 export default function FinalApproval() {
+  // --- State variables ---
+  // Theme, font size, confirmation, sidebar, search, submissions, etc.
   const [dark, setDark] = useState(localStorage.getItem('theme') === 'dark');
   const [fontSize, setFontSize] = useState(localStorage.getItem('fontSize') || '14px');
   const [confirmOn, setConfirmOn] = useState(localStorage.getItem('confirmOn') !== 'false');
@@ -304,26 +330,25 @@ export default function FinalApproval() {
   const [notes, setNotes] = useState('');
   const [hoverIdx, setHoverIdx] = useState(-1);
   const [btnHover, setBtnHover] = useState(false);
-  const pdfViewerRef = useRef();
   const navigate = useNavigate();
   const [fileInputKey, setFileInputKey] = useState(Date.now());
   const [successMsg, setSuccessMsg] = useState('');
-  const [pdfUrl, setPdfUrl] = useState('');
-  const [pdfViewerSize, setPdfViewerSize] = useState({ width: 2000, height: window.innerHeight - 100 });
-  // Add state for settings panel
+  const [dragOver, setDragOver] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  // --- Constants for layout ---
   const REVIEW_CONTROLS_WIDTH = 350;
   const HORIZONTAL_GAP = 20; // matches the gap and review controls padding
   const CONTAINER_HORIZONTAL_PADDING = 32; // 2rem in px
   const CONTAINER_VERTICAL_PADDING = 40; // 2.5rem in px
 
-  // Access control: only reviewers allowed
+  // --- Effects ---
+  // Access control: only final reviewers allowed
   useEffect(() => {
     const role = atob(sessionStorage.getItem('authRole') || '');
     const exp = +sessionStorage.getItem('expiresAt') || 0;
-    if (role !== 'reviewer' || Date.now() > exp) {
-      alert('Unauthorized');
+    if ((role !== 'reviewer' && role !== 'finalreviewer') || Date.now() > exp) {
+      window.alert('Unauthorized');
       navigate('/login');
     }
   }, [navigate]);
@@ -338,14 +363,50 @@ export default function FinalApproval() {
 
   // Load submissions and receipts
   useEffect(() => {
-    setSubmissions(JSON.parse(localStorage.getItem('submissions') || '[]'));
+    const rawSubmissions = JSON.parse(localStorage.getItem('submissions') || '[]');
+    
+    // Convert base64 content back to File objects for display
+    const processedSubmissions = rawSubmissions.map(submission => {
+      if (submission.content && !submission.file) {
+        // Convert legacy base64 to File object
+        try {
+          let pdfData = submission.content;
+          if (pdfData.startsWith('data:')) {
+            pdfData = pdfData.split(',')[1];
+          }
+          pdfData = pdfData.replace(/\s+/g, '');
+          
+          const binary = atob(pdfData);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+          }
+          
+          const blob = new Blob([bytes], { type: 'application/pdf' });
+          const file = new File([blob], submission.filename, { type: 'application/pdf' });
+          
+          return {
+            ...submission,
+            file: file,
+            content: null // Clear base64 content
+          };
+        } catch (error) {
+          console.error('Error converting base64 to file:', error);
+          return submission;
+        }
+      }
+      return submission;
+    });
+    
+    setSubmissions(processedSubmissions);
     setReceipts(JSON.parse(localStorage.getItem('receipts') || '{}'));
+    
     // Restore selected document, notes, and scroll position
     const savedSelected = localStorage.getItem('reviewerSelected');
     const savedNotes = localStorage.getItem('reviewerNotes');
     const savedScroll = localStorage.getItem('reviewerScroll');
     if (savedSelected) {
-      const found = JSON.parse(localStorage.getItem('submissions') || '[]').find(s => getDisplayFilename(s) === savedSelected);
+      const found = processedSubmissions.find(s => getDisplayFilename(s) === savedSelected);
       if (found) setSelected(found);
     }
     if (savedNotes) setNotes(savedNotes);
@@ -366,24 +427,30 @@ export default function FinalApproval() {
 
   // Select a submission
   const selectSubmission = (s, idx) => {
-    if (confirmOn && !window.confirm('Open submission?')) return;
+    if (confirmOn && !window.confirm('Select submission?')) return;
     const newReceipts = { ...receipts, [s.filename]: true };
     setReceipts(newReceipts);
     localStorage.setItem('receipts', JSON.stringify(newReceipts));
     setSelected(s);
-    // Set blob URL for popout
-    const blob = new Blob([Uint8Array.from(atob(s.content), c => c.charCodeAt(0))], { type: 'application/pdf' });
-    let url = URL.createObjectURL(blob);
-    url += '#zoom=page-fit'; // PDF.js fill viewer
-    setPdfUrl(url);
     localStorage.setItem('reviewerSelected', getDisplayFilename(s));
   };
 
   // Approve submission
   const approveSubmission = () => {
-    if (!selected) return alert('Select one');
+    if (!selected) return window.alert('Select one');
     if (confirmOn && !window.confirm('Approve and publish?')) return;
     const updatedSubs = submissions.filter(x => x !== selected);
+    
+    // Automatically rename the file to Stage3 (approved/published)
+    const newFilename = autoRenameFile(selected.filename, 'Stage3');
+    const approvedSubmission = { 
+      ...selected, 
+      stage: 'Stage3', 
+      filename: newFilename,
+      time: Date.now() 
+    };
+    updatedSubs.push(approvedSubmission);
+    
     // Mark as published (could add a published flag or remove from list)
     localStorage.setItem('submissions', JSON.stringify(updatedSubs));
     setSubmissions(updatedSubs);
@@ -392,7 +459,65 @@ export default function FinalApproval() {
     setFileInputKey(Date.now()); // Reset file input
     setSuccessMsg('Approved and published!');
     setTimeout(() => setSuccessMsg(''), 5000);
-    alert('Approved and published!');
+    window.alert('Approved and published!');
+  };
+
+  // Send back to librarian
+  const sendBackToLibrarian = () => {
+    if (!selected) return window.alert('Select one');
+    
+    // Special confirmation dialog that doesn't depend on confirmOn setting
+    const confirmed = window.confirm(
+      '⚠️ CAUTION: This will send the submission back to the librarian.\n\n' +
+      'This action cannot be undone. Are you sure you want to continue?'
+    );
+    
+    if (!confirmed) return;
+    
+    const updatedSubs = submissions.filter(x => x !== selected);
+    
+    // Automatically rename the file back to Stage1
+    const newFilename = autoRenameFile(selected.filename, 'Stage1');
+    const newSel = { 
+      ...selected, 
+      stage: 'Stage1', 
+      filename: newFilename,
+      time: Date.now() 
+    };
+    updatedSubs.push(newSel);
+    localStorage.setItem('submissions', JSON.stringify(updatedSubs));
+    setSubmissions(updatedSubs);
+    
+    // Log the "sent back" action for admin dashboard
+    const adminLog = JSON.parse(localStorage.getItem('adminLog') || '[]');
+    adminLog.push({
+      time: Date.now(),
+      user: atob(sessionStorage.getItem('authUser') || ''),
+      stage: 'SENT_BACK',
+      filename: selected.filename,
+      notes: `Sent back to librarian from final review`,
+      action: 'sent_back'
+    });
+    localStorage.setItem('adminLog', JSON.stringify(adminLog));
+    
+    // Create notification for the librarian
+    const notifications = JSON.parse(localStorage.getItem('userNotifications') || '[]');
+    const notificationId = `notification_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    notifications.push({
+      id: notificationId,
+      filename: selected.filename,
+      targetUser: 'librarian',
+      targetStage: 'Stage1',
+      time: Date.now(),
+      message: `${selected.filename} has been sent back to you for further review.`
+    });
+    localStorage.setItem('userNotifications', JSON.stringify(notifications));
+    
+    setSelected(null);
+    setNotes('');
+    setFileInputKey(Date.now()); // Reset file input
+    setSuccessMsg('Sent back to Librarian!');
+    setTimeout(() => setSuccessMsg(''), 5000);
   };
 
   const handleLogout = () => {
@@ -400,19 +525,254 @@ export default function FinalApproval() {
     navigate('/login');
   };
 
-  // Update getMaxPdfWidth to dynamically calculate max width
-  const getMaxPdfWidth = () => {
-    // window.innerWidth - sidebar (if open) - review controls - gaps - container paddings
-    const sidebarWidth = sidebarOpen ? 260 : 0;
-    const totalGaps = HORIZONTAL_GAP + CONTAINER_HORIZONTAL_PADDING;
-    return (
-      window.innerWidth - sidebarWidth - REVIEW_CONTROLS_WIDTH - totalGaps * 2
-    );
+  // Handle opening document from notification
+  const handleOpenDocumentFromNotification = (filename) => {
+    const submission = submissions.find(s => s.filename === filename);
+    if (submission) {
+      setSelected(submission);
+      // Scroll to the submission in the sidebar if needed
+      const submissionElement = document.querySelector(`[data-filename="${filename}"]`);
+      if (submissionElement) {
+        submissionElement.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
   };
 
+  // Download PDF
+  const downloadPDF = () => {
+    if (!selected) return window.alert('Select a submission first');
+    
+    try {
+      // If we have a File object, use it directly
+      if (selected.file instanceof File) {
+        const url = URL.createObjectURL(selected.file);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = selected.filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        return;
+      }
+      
+      // Fallback for legacy base64 data
+      if (selected.content) {
+        let pdfData = selected.content;
+        
+        // If it's a data URL, extract the base64 part
+        if (pdfData.startsWith('data:')) {
+          pdfData = pdfData.split(',')[1];
+        }
+        
+        // Clean the base64 string
+        pdfData = pdfData.replace(/\s+/g, '');
+        
+        // Decode base64 to binary
+        const binary = atob(pdfData);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        
+        // Create blob and download
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = selected.filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      console.error('Error downloading PDF:', error);
+      window.alert('Error downloading PDF. Please try again.');
+    }
+  };
+
+  // Preview PDF in new tab
+  const previewPDF = () => {
+    if (!selected) return window.alert('Select a submission first');
+    
+    try {
+      // If we have a File object, use it directly
+      if (selected.file instanceof File) {
+        const url = URL.createObjectURL(selected.file);
+        window.open(url, '_blank');
+        return;
+      }
+      
+      // Fallback for legacy base64 data
+      if (selected.content) {
+        let pdfData = selected.content;
+        
+        // If it's a data URL, extract the base64 part
+        if (pdfData.startsWith('data:')) {
+          pdfData = pdfData.split(',')[1];
+        }
+        
+        // Clean the base64 string
+        pdfData = pdfData.replace(/\s+/g, '');
+        
+        // Create data URL for preview
+        const dataUrl = `data:application/pdf;base64,${pdfData}`;
+        
+        // Open in new tab
+        window.open(dataUrl, '_blank');
+      }
+    } catch (error) {
+      console.error('Error previewing PDF:', error);
+      window.alert('Error previewing PDF. Please try again.');
+    }
+  };
+
+  // Handle drag and drop
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setDragOver(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+  };
+
+  // Sanitize input to prevent XSS
+  const sanitizeInput = (input) => {
+    if (typeof input !== 'string') return '';
+    
+    // Remove potentially dangerous HTML tags and attributes
+    return input
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+      .replace(/<object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object>/gi, '')
+      .replace(/<embed\b[^<]*(?:(?!<\/embed>)<[^<]*)*<\/embed>/gi, '')
+      .replace(/<form\b[^<]*(?:(?!<\/form>)<[^<]*)*<\/form>/gi, '')
+      .replace(/<input\b[^>]*>/gi, '')
+      .replace(/<textarea\b[^<]*(?:(?!<\/textarea>)<[^<]*)*<\/textarea>/gi, '')
+      .replace(/<select\b[^<]*(?:(?!<\/select>)<[^<]*)*<\/select>/gi, '')
+      .replace(/<button\b[^<]*(?:(?!<\/button>)<[^<]*)*<\/button>/gi, '')
+      .replace(/<link\b[^>]*>/gi, '')
+      .replace(/<meta\b[^>]*>/gi, '')
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+      .replace(/javascript:/gi, '')
+      .replace(/on\w+\s*=/gi, '')
+      .replace(/data:/gi, '')
+      .replace(/vbscript:/gi, '')
+      .replace(/expression\s*\(/gi, '')
+      .replace(/eval\s*\(/gi, '')
+      .replace(/<[^>]*>/g, '') // Remove any remaining HTML tags
+      .trim();
+  };
+
+  // Validate file size (default max 10MB)
+  const validateFileSize = (file, maxSizeMB = 10) => {
+    const maxSizeBytes = maxSizeMB * 1024 * 1024; // Convert MB to bytes
+    if (file.size > maxSizeBytes) {
+      window.alert(`File size must be under ${maxSizeMB}MB. Current file size: ${(file.size / (1024 * 1024)).toFixed(2)}MB`);
+      return false;
+    }
+    return true;
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    
+    if (!selected) {
+      window.alert('Please select a submission first');
+      return;
+    }
+
+    const files = Array.from(e.dataTransfer.files);
+    const pdfFile = files.find(file => file.type === 'application/pdf');
+    
+    if (!pdfFile) {
+      window.alert('Please drop a PDF file');
+      return;
+    }
+
+    // Validate file size
+    if (!validateFileSize(pdfFile)) {
+      return;
+    }
+
+    // Validate filename matches naming convention
+    const expectedFilename = selected.filename;
+    const droppedFilename = pdfFile.name;
+    
+    // Check if the dropped file follows the naming convention
+    if (!droppedFilename.match(/^.+_.+_Stage\d+\.pdf$/i)) {
+      window.alert('Please use the correct naming convention: first_last_StageX.pdf');
+      return;
+    }
+
+    // Automatically rename the dropped file to match the current stage
+    const renamedFile = new File([pdfFile], selected.filename, { type: 'application/pdf' });
+    
+    // Update the submission with the new file
+    const updatedSubs = submissions.map(s => {
+      if (s.filename === selected.filename) {
+        return {
+          ...s,
+          file: renamedFile, // Store the renamed File object
+          content: null, // Clear legacy base64 content
+          time: Date.now()
+        };
+      }
+      return s;
+    });
+    
+    // Convert File objects to base64 for localStorage
+    const serializableSubs = await Promise.all(updatedSubs.map(async sub => {
+      if (sub.file instanceof File) {
+        // Convert File to base64
+        const base64 = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(',')[1]);
+          reader.readAsDataURL(sub.file);
+        });
+        
+        return {
+          ...sub,
+          content: base64,
+          file: null // Remove File object for serialization
+        };
+      }
+      return sub;
+    }));
+    
+    localStorage.setItem('submissions', JSON.stringify(serializableSubs));
+    setSubmissions(updatedSubs);
+    setSelected(updatedSubs.find(s => s.filename === selected.filename));
+    setSuccessMsg('PDF updated successfully!');
+    setTimeout(() => setSuccessMsg(''), 5000);
+  };
+
+
+
   return (
-    <div style={styles.body(dark, fontSize)}>
-      {/* Global style to force fullscreen, no scrollbars, no white edges */}
+    <div style={{
+      ...styles.body(dark, fontSize),
+      minHeight: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'flex-start',
+      paddingTop: 0,
+      boxSizing: 'border-box',
+      background: dark
+        ? 'radial-gradient(ellipse at 50% 40%, #231942 0%, #4F2683 80%, #18122b 100%)'
+        : 'radial-gradient(ellipse at 50% 40%, #fff 0%, #e9e6f7 80%, #cfc6e6 100%)',
+    }}>
+      {/* --- Notification System --- */}
+      <NotificationSystem 
+        dark={dark} 
+        onOpenDocument={handleOpenDocumentFromNotification}
+      />
+      {/* --- Global Styles --- */}
       <style>{`
         html, body, #root {
           width: 100vw !important;
@@ -429,7 +789,7 @@ export default function FinalApproval() {
           display: none !important;
         }
       `}</style>
-      {/* Add back a visible settings bar at the top right */}
+      {/* --- Settings Bar --- */}
       <div style={{
         position: 'fixed',
         top: 18,
@@ -444,30 +804,52 @@ export default function FinalApproval() {
         gap: 18,
         marginBottom: '2.5rem', // Add vertical space below the bar
       }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <input type="checkbox" checked={dark} onChange={e => setDark(e.target.checked)} style={{ display: 'none' }} />
+        <label htmlFor="darkModeToggle" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input 
+            id="darkModeToggle"
+            name="darkMode"
+            type="checkbox" 
+            checked={dark} 
+            onChange={e => setDark(e.target.checked)} 
+            style={{ display: 'none' }} 
+          />
           <span style={styles.slider(dark)}>
             <span style={styles.sliderBefore(dark)}>{dark ? '🌙' : '☀'}</span>
           </span>
           <span style={{ color: dark ? '#e0d6f7' : '#201436', fontWeight: 500 }}>Dark Mode</span>
         </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <label htmlFor="fontSizeSelect" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ color: dark ? '#e0d6f7' : '#201436', fontWeight: 500 }}>Font Size</span>
-          <select value={fontSize} onChange={e => setFontSize(e.target.value)} style={styles.select(dark)}>
+          <select 
+            id="fontSizeSelect"
+            name="fontSize"
+            value={fontSize} 
+            onChange={e => setFontSize(e.target.value)} 
+            style={styles.select(dark)}
+          >
             <option value="14px">Default</option>
             <option value="16px">Large</option>
             <option value="12px">Small</option>
           </select>
         </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: dark ? '#e0d6f7' : '#201436', fontWeight: 500 }}>
-          <input type="checkbox" checked={confirmOn} onChange={e => setConfirmOn(e.target.checked)} />
+        <label htmlFor="confirmToggle" style={{ display: 'flex', alignItems: 'center', gap: 8, color: dark ? '#e0d6f7' : '#201436', fontWeight: 500 }}>
+          <input 
+            id="confirmToggle"
+            name="confirmOn"
+            type="checkbox" 
+            checked={confirmOn} 
+            onChange={e => setConfirmOn(e.target.checked)} 
+          />
           Confirm
         </label>
         <button onClick={handleLogout} style={styles.button(dark, false)}>Logout</button>
       </div>
-      {/* Sidebar */}
+      {/* --- Sidebar --- */}
       <div style={styles.sidebar(dark, sidebarOpen)}>
+        <label htmlFor="searchInput" style={{ display: 'none' }}>Search submissions</label>
         <input
+          id="searchInput"
+          name="search"
           type="text"
           placeholder="Search…"
           value={search}
@@ -491,7 +873,7 @@ export default function FinalApproval() {
           ))}
         </div>
       </div>
-      {/* Hamburger */}
+      {/* --- Hamburger Menu --- */}
       <div
         style={{
           ...styles.hamburger(dark, sidebarOpen),
@@ -504,8 +886,31 @@ export default function FinalApproval() {
           <div key={idx} style={styles.hamburgerBar(dark, sidebarOpen, idx)}></div>
         ))}
       </div>
-      {/* Main content */}
-      <div style={styles.main(sidebarOpen)}>
+      {/* --- Main Content Box --- */}
+      <div style={{
+        ...styles.main(sidebarOpen),
+        width: '100%',
+        maxWidth: 900,
+        // Increase maxHeight by ~10% (from 500px to 550px)
+        maxHeight: 550,
+        minHeight: 250,
+        height: 'auto',
+        // Move the box down (from 64px to 104px)
+        margin: '104px auto 24px auto',
+        background: dark ? 'rgba(36, 18, 54, 0.98)' : 'rgba(255,255,255,0.98)',
+        borderRadius: 18,
+        boxShadow: dark
+          ? '0 8px 40px 0 rgba(79,38,131,0.55), 0 1.5px 8px 0 rgba(0,0,0,0.18)'
+          : '0 4px 32px rgba(80,40,130,0.10)',
+        overflow: 'visible',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'stretch',
+        justifyContent: 'center',
+        padding: '1.2rem 1.2rem',
+        // Ensure the box never extends past the bottom of the viewport
+        maxHeight: 'calc(100vh - 104px - 24px)', // 104px top margin, 24px bottom margin
+      }}>
         <div style={{
           ...styles.container(dark),
           maxWidth: 'none',
@@ -519,7 +924,7 @@ export default function FinalApproval() {
           overflow: 'visible',
           maxHeight: 'none',
           overflowY: 'visible',
-          marginTop: '5.5rem', // Add vertical space below the settings bar
+          // Remove marginTop to avoid double spacing
         }}>
           <h1 style={styles.h1(dark)}>Final Reviewer</h1>
           <div style={{ fontWeight: 500, marginBottom: 12 }}>{selected ? getDisplayFilename(selected) : ''}</div>
@@ -534,7 +939,7 @@ export default function FinalApproval() {
             boxSizing: 'border-box',
             paddingBottom: CONTAINER_VERTICAL_PADDING,
           }} id="pdf-review-flex-container">
-            {/* PDF Viewer - Left Side */}
+            {/* --- PDF Download/Preview/Drop Zone --- */}
             <div style={{
               flex: 1,
               display: 'flex',
@@ -545,164 +950,166 @@ export default function FinalApproval() {
               paddingTop: 0,
               paddingBottom: 0,
             }}>
-              <div style={{
-                position: 'relative',
-                left: 0,
-                top: 0,
-                width: pdfViewerSize.width,
-                height: Math.min(pdfViewerSize.height, window.innerHeight - CONTAINER_VERTICAL_PADDING * 2 - 120), // Cap height to background box
-                minWidth: 400,
-                minHeight: 300,
-                maxWidth: getMaxPdfWidth(),
-                maxHeight: window.innerHeight - CONTAINER_VERTICAL_PADDING * 2 - 120, // Cap max height
-                border: '2px solid #ccc',
-                borderRadius: 8,
-                overflow: 'hidden',
-                zIndex: 5,
-                background: '#fff',
-                marginTop: 0,
-                marginBottom: 0,
-                boxSizing: 'border-box',
-              }}>
-                {/* Pop Out button absolutely positioned top-right */}
-                {pdfUrl && (
-                  <button
-                    onClick={() => window.open(pdfUrl, '_blank')}
-                    style={{
-                      position: 'absolute',
-                      top: 10,
-                      right: 10,
-                      zIndex: 20,
-                      ...styles.button(dark),
-                      margin: 0,
-                      padding: '6px 16px',
-                      fontSize: '1rem',
-                      borderRadius: 6,
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                    }}
-                  >
-                    Pop Out
-                  </button>
+              <div 
+                style={{
+                  position: 'relative',
+                  left: 0,
+                  top: 0,
+                  width: '100%',
+                  height: '100%',
+                  minWidth: 400,
+                  minHeight: 300,
+                  border: dragOver ? '3px dashed #4F2683' : '2px solid #ccc',
+                  borderRadius: 8,
+                  background: dragOver 
+                    ? (dark ? 'rgba(79, 38, 131, 0.1)' : 'rgba(79, 38, 131, 0.05)')
+                    : (dark ? '#2a1a3a' : '#f9f9f9'),
+                  marginTop: 0,
+                  marginBottom: 0,
+                  boxSizing: 'border-box',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.3s ease',
+                }}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                {selected ? (
+                  <div style={{ textAlign: 'center', padding: '2rem' }}>
+                    <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>📄</div>
+                    <h3 style={{ 
+                      color: dark ? '#e0d6f7' : '#201436', 
+                      marginBottom: '1rem',
+                      fontSize: '1.5rem'
+                    }}>
+                      {selected.filename}
+                    </h3>
+                    <p style={{ 
+                      color: dark ? '#bbaed6' : '#666', 
+                      marginBottom: '2rem',
+                      fontSize: '1rem'
+                    }}>
+                      Ready for download and modification
+                    </p>
+                    <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+                      <button
+                        onClick={downloadPDF}
+                        style={{
+                          ...styles.button(dark),
+                          padding: '12px 24px',
+                          fontSize: '1rem',
+                          background: '#4F2683',
+                        }}
+                      >
+                        📥 Download PDF
+                      </button>
+                      <button
+                        onClick={previewPDF}
+                        style={{
+                          ...styles.button(dark),
+                          padding: '12px 24px',
+                          fontSize: '1rem',
+                          background: '#007bff',
+                        }}
+                      >
+                        👁️ Preview PDF
+                      </button>
+                      <div style={{ 
+                        padding: '12px 24px',
+                        border: '2px dashed #4F2683',
+                        borderRadius: 8,
+                        color: dark ? '#e0d6f7' : '#201436',
+                        fontSize: '1rem',
+                        textAlign: 'center',
+                        minWidth: '200px'
+                      }}>
+                        📤 Drop modified PDF here
+                      </div>
+                    </div>
+                    {dragOver && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        background: 'rgba(79, 38, 131, 0.9)',
+                        color: '#fff',
+                        padding: '1rem 2rem',
+                        borderRadius: 8,
+                        fontSize: '1.2rem',
+                        fontWeight: 600,
+                        zIndex: 100,
+                      }}>
+                        Drop PDF to update
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '2rem' }}>
+                    <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>📋</div>
+                    <h3 style={{ 
+                      color: dark ? '#e0d6f7' : '#201436', 
+                      marginBottom: '1rem',
+                      fontSize: '1.5rem'
+                    }}>
+                      Select a submission
+                    </h3>
+                    <p style={{ 
+                      color: dark ? '#bbaed6' : '#666', 
+                      fontSize: '1rem'
+                    }}>
+                      Choose a document from the sidebar to download and modify
+                    </p>
+                  </div>
                 )}
-                {/* react-pdf viewer */}
-                {selected && selected.content && (
-                  <Document
-                    file={new Blob([Uint8Array.from(atob(selected.content), c => c.charCodeAt(0))], { type: 'application/pdf' })}
-                    loading="Loading PDF..."
-                    error={<div style={{ color: 'red', padding: 20 }}>Failed to load PDF.</div>}
-                    noData={<div style={{ color: 'gray', padding: 20 }}>No PDF selected.</div>}
-                  >
-                    <Page
-                      pageNumber={1}
-                      width={pdfViewerSize.width - 20}
-                      height={Math.min(pdfViewerSize.height - 20, window.innerHeight - CONTAINER_VERTICAL_PADDING * 2 - 140)}
-                      renderAnnotationLayer={false}
-                      renderTextLayer={false}
-                      scale={1}
-                    />
-                  </Document>
-                )}
-                {/* Resize handles */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    right: 0,
-                    top: 0,
-                    bottom: 0,
-                    width: 8,
-                    cursor: 'ew-resize',
-                    background: 'rgba(0,0,0,0.1)',
-                    zIndex: 10,
-                  }}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    const startX = e.clientX;
-                    const startWidth = pdfViewerSize.width;
-                    
-                    const handleMouseMove = (moveEvent) => {
-                      const deltaX = moveEvent.clientX - startX;
-                      const newWidth = Math.max(400, Math.min(startWidth + deltaX, getMaxPdfWidth()));
-                      setPdfViewerSize(prev => ({ ...prev, width: newWidth }));
-                    };
-                    
-                    const handleMouseUp = () => {
-                      document.removeEventListener('mousemove', handleMouseMove);
-                      document.removeEventListener('mouseup', handleMouseUp);
-                    };
-                    
-                    document.addEventListener('mousemove', handleMouseMove);
-                    document.addEventListener('mouseup', handleMouseUp);
-                  }}
-                />
-                <div
-                  style={{
-                    position: 'absolute',
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    height: 8,
-                    cursor: 'ns-resize',
-                    background: 'rgba(0,0,0,0.1)',
-                    zIndex: 10,
-                  }}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    const startY = e.clientY;
-                    const startHeight = pdfViewerSize.height;
-                    
-                    const handleMouseMove = (moveEvent) => {
-                      const deltaY = moveEvent.clientY - startY;
-                      const newHeight = Math.max(300, Math.min(startHeight + deltaY, window.innerHeight - CONTAINER_VERTICAL_PADDING * 2 - 120));
-                      setPdfViewerSize(prev => ({ ...prev, height: newHeight }));
-                    };
-                    
-                    const handleMouseUp = () => {
-                      document.removeEventListener('mousemove', handleMouseMove);
-                      document.removeEventListener('mouseup', handleMouseUp);
-                    };
-                    
-                    document.addEventListener('mousemove', handleMouseMove);
-                    document.addEventListener('mouseup', handleMouseUp);
-                  }}
-                />
-                <div
-                  style={{
-                    position: 'absolute',
-                    right: 0,
-                    bottom: 0,
-                    width: 8,
-                    height: 8,
-                    cursor: 'nwse-resize',
-                    background: 'rgba(0,0,0,0.1)',
-                    zIndex: 10,
-                  }}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    const startX = e.clientX;
-                    const startY = e.clientY;
-                    const startWidth = pdfViewerSize.width;
-                    const startHeight = pdfViewerSize.height;
-                    
-                    const handleMouseMove = (moveEvent) => {
-                      const deltaX = moveEvent.clientX - startX;
-                      const deltaY = moveEvent.clientY - startY;
-                      const newWidth = Math.max(400, Math.min(startWidth + deltaX, getMaxPdfWidth()));
-                      const newHeight = Math.max(300, Math.min(startHeight + deltaY, window.innerHeight - CONTAINER_VERTICAL_PADDING * 2 - 120));
-                      setPdfViewerSize(prev => ({ width: newWidth, height: newHeight }));
-                    };
-                    
-                    const handleMouseUp = () => {
-                      document.removeEventListener('mousemove', handleMouseMove);
-                      document.removeEventListener('mouseup', handleMouseUp);
-                    };
-                    
-                    document.addEventListener('mousemove', handleMouseMove);
-                    document.addEventListener('mouseup', handleMouseUp);
-                  }}
-                />
               </div>
+              {/* --- Submission Details Box (only one, below PDF area) --- */}
+              {selected && (
+                <>
+                  <div style={{
+                    margin: '18px auto 0 auto',
+                    padding: '12px 16px',
+                    background: dark ? 'rgba(79, 38, 131, 0.1)' : 'rgba(79, 38, 131, 0.05)',
+                    borderRadius: 8,
+                    border: `1px solid ${dark ? '#4F2683' : '#bbaed6'}`,
+                    fontSize: '0.9rem',
+                    color: dark ? '#bbaed6' : '#666',
+                    maxWidth: 400,
+                    width: '100%',
+                    textAlign: 'left',
+                  }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4, color: dark ? '#e0d6f7' : '#201436' }}>
+                      📅 Submission Details
+                    </div>
+                    <div style={{ marginBottom: 4 }}>
+                      <strong>Submitted:</strong> {new Date(selected.time).toLocaleString()}
+                    </div>
+                    <div style={{ marginBottom: 4 }}>
+                      <strong>Student:</strong> {selected.user || 'Unknown'}
+                    </div>
+                    {selected.notes && (
+                      <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${dark ? '#4F2683' : '#bbaed6'}` }}>
+                        <strong>Student Notes:</strong> {selected.notes}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Workflow Progress */}
+                  <div style={{ margin: '18px auto 0 auto', maxWidth: 400, width: '100%' }}>
+                    <WorkflowProgress 
+                      currentStage={selected.stage || 'Stage2'}
+                      status={selected.status || 'In Review'}
+                      dark={dark}
+                      showTimeline={true}
+                    />
+                  </div>
+                </>
+              )}
             </div>
-            {/* Review Controls - Right Side */}
+            {/* --- Review Controls --- */}
             <div style={{
               width: REVIEW_CONTROLS_WIDTH,
               background: dark ? 'rgba(36, 18, 54, 0.98)' : 'rgba(255,255,255,0.98)',
@@ -749,35 +1156,95 @@ export default function FinalApproval() {
                 />
               </div>
               
-              <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 'auto' }}>
                 <button
-                  style={{
-                    ...styles.button(dark, btnHover),
-                    flex: 1,
-                    background: '#28a745',
-                  }}
-                  onMouseEnter={() => setBtnHover(true)}
-                  onMouseLeave={() => setBtnHover(false)}
                   onClick={approveSubmission}
+                  disabled={!selected}
+                  style={{
+                    ...styles.button(dark),
+                    width: '100%',
+                    backgroundColor: '#059669',
+                    border: '2px solid #059669',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.backgroundColor = '#047857';
+                    e.target.style.borderColor = '#047857';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.backgroundColor = '#059669';
+                    e.target.style.borderColor = '#059669';
+                  }}
                 >
-                  ✅ Approve & Publish
+                  ✅ Approve Submission
+                </button>
+                
+                <button
+                  onClick={sendBackToLibrarian}
+                  disabled={!selected}
+                  title="⚠️ Send this submission back to the librarian for review"
+                  style={{
+                    ...styles.button(dark),
+                    width: '100%',
+                    backgroundColor: '#dc2626',
+                    border: '2px solid #dc2626',
+                    position: 'relative',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.backgroundColor = '#b91c1c';
+                    e.target.style.borderColor = '#b91c1c';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.backgroundColor = '#dc2626';
+                    e.target.style.borderColor = '#dc2626';
+                  }}
+                >
+                  <span style={{ marginRight: 8 }}>⚠️</span>
+                  Send Back to Librarian
+                </button>
+                <button
+                  onClick={() => {
+                    if (!selected) return;
+                    if (window.confirm('Are you sure you want to permanently delete this submission? This cannot be undone.')) {
+                      // Remove from submissions
+                      const updatedSubs = submissions.filter(s => s !== selected);
+                      localStorage.setItem('submissions', JSON.stringify(updatedSubs));
+                      setSubmissions(updatedSubs);
+                      setSelected(null);
+                      setNotes('');
+                      setFileInputKey(Date.now());
+                    }
+                  }}
+                  disabled={!selected}
+                  style={{
+                    ...styles.button(dark),
+                    width: '100%',
+                    backgroundColor: '#6b7280',
+                    border: '2px solid #6b7280',
+                    color: '#fff',
+                    marginTop: 8,
+                  }}
+                  title="Delete this submission permanently"
+                >
+                  🗑️ Delete Submission
                 </button>
               </div>
-              
-              {successMsg && (
-                <div style={{
-                  background: '#d4edda',
-                  color: '#155724',
-                  padding: '1rem',
-                  borderRadius: '6px',
-                  textAlign: 'center',
-                  fontWeight: 500,
-                }}>
-                  {successMsg}
-                </div>
-              )}
             </div>
           </div>
+          {successMsg && (
+            <div style={{
+              background: 'linear-gradient(90deg, #4F2683 0%, #6a4fb6 100%)',
+              color: '#fff',
+              margin: '1.5rem auto',
+              fontWeight: 700,
+              fontSize: '1.3rem',
+              borderRadius: 8,
+              padding: '1rem 2rem',
+              textAlign: 'center',
+              maxWidth: 400,
+              boxShadow: '0 2px 12px rgba(79,38,131,0.15)',
+              letterSpacing: '0.5px',
+            }}>{successMsg}</div>
+          )}
         </div>
       </div>
     </div>

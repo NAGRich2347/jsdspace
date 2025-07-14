@@ -1,64 +1,108 @@
+// --- ManualControls.js ---
+// React component for admin-only manual workflow controls and simulation.
+// Provides navigation shortcuts, workflow logging, and system management tools.
+// Allows admins to simulate workflow stages and track system activities.
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 /**
- * ManualControls component for admin-only workflow simulation and log.
+ * ManualControls Component
+ * 
+ * This component provides administrative controls for manual workflow simulation
+ * and system management. It's restricted to admin users only and provides:
+ * - Quick navigation to different workflow stages
+ * - Workflow activity logging
+ * - System simulation tools
+ * - Theme and font size controls
+ * 
+ * Features:
+ * - Admin-only access control
+ * - Workflow simulation logging
+ * - Quick navigation buttons
+ * - Dark/light theme support
+ * - Persistent settings storage
  */
 export default function ManualControls() {
-  const [dark, setDark] = useState(localStorage.getItem('theme') === 'dark');
-  const [fontSize, setFontSize] = useState(localStorage.getItem('fontSize') || '14px');
-  const [confirmOn, setConfirmOn] = useState(localStorage.getItem('confirmOn') !== 'false');
-  const [log, setLog] = useState([]);
-  const navigate = useNavigate();
+  // UI state management
+  const [dark, setDark] = useState(localStorage.getItem('theme') === 'dark'); // Dark/light theme
+  const [fontSize, setFontSize] = useState(localStorage.getItem('fontSize') || '14px'); // Font size preference
+  const [confirmOn, setConfirmOn] = useState(localStorage.getItem('confirmOn') !== 'false'); // Confirmation dialogs
+  
+  // Data state management
+  const [log, setLog] = useState([]); // Workflow activity log
+  
+  // Navigation and utilities
+  const navigate = useNavigate(); // React Router navigation hook
 
-  // Access control: only admins allowed
+  // Access control: verify user is authenticated as an admin
   useEffect(() => {
-    const role = atob(sessionStorage.getItem('authRole') || '');
-    const exp = +sessionStorage.getItem('expiresAt') || 0;
+    const role = atob(sessionStorage.getItem('authRole') || ''); // Decode role from base64
+    const exp = +sessionStorage.getItem('expiresAt') || 0; // Get session expiration time
     if (role !== 'admin' || Date.now() > exp) {
-      alert('Unauthorized');
-      navigate('/login');
+      window.alert('Unauthorized'); // Show error if not admin or session expired
+      navigate('/login'); // Redirect to login page
     }
   }, [navigate]);
 
-  // Settings persistence
+  // Persist user preferences to localStorage and apply to document
   useEffect(() => {
-    document.body.classList.toggle('dark-mode', dark);
-    document.documentElement.style.fontSize = fontSize;
-    localStorage.setItem('theme', dark ? 'dark' : 'light');
-    localStorage.setItem('fontSize', fontSize);
-    localStorage.setItem('confirmOn', confirmOn);
+    document.body.classList.toggle('dark-mode', dark); // Apply dark mode class
+    document.documentElement.style.fontSize = fontSize; // Apply font size to document
+    localStorage.setItem('theme', dark ? 'dark' : 'light'); // Save theme preference
+    localStorage.setItem('fontSize', fontSize); // Save font size preference
+    localStorage.setItem('confirmOn', confirmOn); // Save confirmation dialog preference
     return () => {
-      document.body.classList.remove('dark-mode');
-      document.documentElement.style.fontSize = '';
+      document.body.classList.remove('dark-mode'); // Cleanup dark mode class
+      document.documentElement.style.fontSize = ''; // Reset font size
     };
   }, [dark, fontSize, confirmOn]);
 
-  // Load workflow log
+  // Load workflow log from localStorage
   useEffect(() => {
-    setLog(JSON.parse(localStorage.getItem('workflowLog') || '[]'));
+    setLog(JSON.parse(localStorage.getItem('workflowLog') || '[]')); // Load existing log
   }, []);
 
-  // Add to workflow log
+  /**
+   * Add a new entry to the workflow log
+   * 
+   * @param {string} msg - The log message to add
+   */
   const addLog = (msg) => {
-    const newLog = [...log, msg];
-    setLog(newLog);
-    localStorage.setItem('workflowLog', JSON.stringify(newLog));
+    const newLog = [...log, msg]; // Add new message to log
+    setLog(newLog); // Update state
+    localStorage.setItem('workflowLog', JSON.stringify(newLog)); // Save to localStorage
   };
 
-  // Simulate workflow navigation
+  /**
+   * Simulate navigation to different workflow stages
+   * 
+   * @param {string} route - The route to navigate to
+   * @param {string} label - The label for the log entry
+   */
   const goTo = (route, label) => {
-    if (confirmOn && !window.confirm('Go there?')) return;
-    addLog(`Simulated: ${label} at ${new Date().toLocaleString()}`);
-    navigate(route);
+    if (confirmOn && !window.confirm('Go there?')) return; // Show confirmation if enabled
+    addLog(`Simulated: ${label} at ${new Date().toLocaleString()}`); // Log the navigation
+    navigate(route); // Navigate to the specified route
   };
 
+  /**
+   * Handle user logout by clearing session data and redirecting to login
+   */
   const handleLogout = () => {
-    sessionStorage.clear();
-    navigate('/login');
+    sessionStorage.clear(); // Clear all session storage (auth data, etc.)
+    navigate('/login'); // Redirect to login page
   };
 
+  /**
+   * ManualControls Component - Comprehensive Styling Object
+   * 
+   * This object contains all the styling for the manual controls page.
+   * Each style function takes theme parameters (dark/light mode) and returns
+   * appropriate CSS properties for responsive, accessible design.
+   */
   const styles = {
+    // Full-screen background with gradient based on theme
     body: (dark, fontSize) => ({
       width: '100vw',
       height: '100vh',
@@ -69,6 +113,7 @@ export default function ManualControls() {
       color: dark ? '#e0d6f7' : '#201436',
       fontSize: fontSize,
     }),
+    // Settings bar positioned in top-right corner
     settingsBar: {
       position: 'absolute',
       top: '20px',
@@ -78,6 +123,7 @@ export default function ManualControls() {
       alignItems: 'center',
       zIndex: 10,
     },
+    // Dark/light mode toggle slider styling
     slider: (dark) => ({
       position: 'relative',
       width: '40px',
@@ -90,6 +136,7 @@ export default function ManualControls() {
       justifyContent: 'space-between',
       padding: '0 2px',
     }),
+    // Slider button styling with smooth transitions
     sliderBefore: (dark) => ({
       content: '""',
       position: 'absolute',
@@ -101,6 +148,7 @@ export default function ManualControls() {
       left: dark ? 'calc(100% - 18px)' : '2px',
       transition: '0.3s',
     }),
+    // Font size selector dropdown styling
     select: (dark) => ({
       padding: '8px 12px',
       borderRadius: '8px',
@@ -115,6 +163,7 @@ export default function ManualControls() {
       backgroundPosition: 'right 10px center',
       backgroundSize: '10px',
     }),
+    // Button styling with primary/secondary variants
     button: (dark, isPrimary) => ({
       padding: '10px 20px',
       borderRadius: '10px',
@@ -129,6 +178,7 @@ export default function ManualControls() {
         backgroundColor: isPrimary ? '#6366f1' : dark ? '#3730a3' : '#d6e4ff',
       },
     }),
+    // Main heading styling
     h1: (dark) => ({
       fontSize: '24px',
       fontWeight: 'bold',
@@ -136,6 +186,7 @@ export default function ManualControls() {
       textAlign: 'center',
       color: dark ? '#e0d6f7' : '#201436',
     }),
+    // Main container with card-like appearance
     container: (dark) => ({
       width: '100%',
       maxWidth: '500px',
@@ -146,6 +197,7 @@ export default function ManualControls() {
       color: dark ? '#e0d6f7' : '#201436',
       fontSize: fontSize,
     }),
+    // Log display area with custom scrollbar
     log: (dark) => ({
       marginTop: '20px',
       padding: '15px',
@@ -190,19 +242,39 @@ export default function ManualControls() {
       `}</style>
       {/* Settings Bar */}
       <div style={styles.settingsBar}>
-        <label style={{ display: 'flex', alignItems: 'center' }}>
-          <input type="checkbox" checked={dark} onChange={e => setDark(e.target.checked)} style={{ display: 'none' }} />
+        <label htmlFor="darkModeToggle" style={{ display: 'flex', alignItems: 'center' }}>
+          <input 
+            id="darkModeToggle"
+            name="darkMode"
+            type="checkbox" 
+            checked={dark} 
+            onChange={e => setDark(e.target.checked)} 
+            style={{ display: 'none' }} 
+          />
           <span style={styles.slider(dark)}>
             <span style={styles.sliderBefore(dark)}>{dark ? '🌙' : '☀'}</span>
           </span>
         </label>
-        <select value={fontSize} onChange={e => setFontSize(e.target.value)} style={styles.select(dark)}>
+        <label htmlFor="fontSizeSelect" style={{ display: 'none' }}>Font Size</label>
+        <select 
+          id="fontSizeSelect"
+          name="fontSize"
+          value={fontSize} 
+          onChange={e => setFontSize(e.target.value)} 
+          style={styles.select(dark)}
+        >
           <option value="14px">Default</option>
           <option value="16px">Large</option>
           <option value="12px">Small</option>
         </select>
-        <label style={{ color: dark ? '#e0d6f7' : '#201436' }}>
-          <input type="checkbox" checked={confirmOn} onChange={e => setConfirmOn(e.target.checked)} />
+        <label htmlFor="confirmToggle" style={{ color: dark ? '#e0d6f7' : '#201436' }}>
+          <input 
+            id="confirmToggle"
+            name="confirmOn"
+            type="checkbox" 
+            checked={confirmOn} 
+            onChange={e => setConfirmOn(e.target.checked)} 
+          />
           <span className="ml-1">Confirm</span>
         </label>
         <button onClick={handleLogout} style={styles.button(dark, false)}>Logout</button>

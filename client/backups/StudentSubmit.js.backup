@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import NotificationSystem from './NotificationSystem';
 import WorkflowProgress from './WorkflowProgress';
-import FileUpload from './FileUpload';
 
 /**
  * StudentSubmit Component - Comprehensive Styling Object
@@ -232,7 +231,7 @@ export default function StudentSubmit() {
   // Form state management
   const [first, setFirst] = useState(''); // Student's first name
   const [last, setLast] = useState(''); // Student's last name
-  const [files, setFiles] = useState([]); // Selected PDF files (now supports multiple)
+  const [file, setFile] = useState(null); // Selected PDF file
   const [notes, setNotes] = useState(''); // Optional notes/comments
   const [alert, setAlert] = useState(''); // Success/error messages
   const [dark, setDark] = useState(localStorage.getItem('theme') === 'dark'); // Theme preference
@@ -328,17 +327,6 @@ export default function StudentSubmit() {
   };
 
   /**
-   * Normalize names by converting spaces to underscores and making lowercase
-   * 
-   * @param {string} name - The name to normalize
-   * @returns {string} Normalized name with underscores and lowercase
-   */
-  const normalizeName = (name) => {
-    // First replace multiple spaces with single underscores, then trim and lowercase
-    return name.replace(/\s+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
-  };
-
-  /**
    * Utility to auto-rename the uploaded file to the required format
    * @param {string} first - Student's first name
    * @param {string} last - Student's last name
@@ -346,9 +334,7 @@ export default function StudentSubmit() {
    * @returns {string} - Properly formatted filename
    */
   const autoRenameFile = (first, last, stage) => {
-    const normalizedFirst = normalizeName(first);
-    const normalizedLast = normalizeName(last);
-    return `${normalizedFirst}_${normalizedLast}_${stage}.pdf`;
+    return `${first}_${last}_${stage}.pdf`;
   };
 
   /**
@@ -360,92 +346,77 @@ export default function StudentSubmit() {
    */
   const handleSubmit = async () => {
     // Validate that all required fields are filled
-    const normalizedFirst = normalizeName(first);
-    const normalizedLast = normalizeName(last);
-    
-    if (!normalizedFirst || !normalizedLast) {
-      window.alert('Please enter both first and last name');
+    if (!first.trim() || !last.trim() || !file) {
+      window.alert('Fill all');
       return;
     }
     
-    if (files.length === 0) {
-      window.alert('Please select at least one PDF file');
+    // Validate file type (must be PDF)
+    if (!validateFileType(file)) {
       return;
     }
     
-    // Validate all files
-    for (const file of files) {
-      if (!validateFileType(file)) {
-        return;
-      }
-      if (!validateFileSize(file)) {
-        return;
-      }
+    // Validate file size (max 10MB)
+    if (!validateFileSize(file)) {
+      return;
     }
     
-    // Show confirmation dialog if enabled
-    if (confirmOn && !window.confirm(`Submit ${files.length} file(s)?`)) return;
-    
-    // Process each file
-    const submissions = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const suffix = files.length > 1 ? `_${i + 1}` : '';
-      const expectedFilename = `${normalizedFirst}_${normalizedLast}_Stage1.pdf` + suffix;
-      const renamedFile = new File([file], expectedFilename, { type: 'application/pdf' });
+    // Auto-rename the file to the required format
+    const expectedFilename = autoRenameFile(first.trim(), last.trim(), 'Stage1');
+    const renamedFile = new File([file], expectedFilename, { type: 'application/pdf' });
     
     // Show confirmation dialog if enabled
     if (confirmOn && !window.confirm('Submit now?')) return;
     
-    // Get current user for tracking
+    // Get current user and check submission limits
     const user = atob(sessionStorage.getItem('authUser') || ''); // Decode username
     const key = `submissions_${user}`; // User-specific storage key
     const arr = JSON.parse(localStorage.getItem(key) || '[]'); // Get user's submissions
-    
-      // Convert File object to base64 string for localStorage storage
-      const base64 = await new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(',')[1]); // Extract base64 data
-        reader.readAsDataURL(renamedFile);
-      });
-      
-      // Trim notes and treat as empty if only spaces
-      const trimmedNotes = notes.trim();
-      // Create submission object with both File and base64 content
-      const submission = {
-        filename: expectedFilename,
-        file: renamedFile, // Use renamed File object
-        content: base64, // Store base64 for localStorage persistence
-        notes: trimmedNotes ? sanitizeInput(trimmedNotes) : '', // Sanitize notes, treat empty if only spaces
-        time: Date.now(),
-        stage: 'Stage1',
-        user: atob(sessionStorage.getItem('authUser') || '')
-      };
-      
-      submissions.push(submission);
+    const now = Date.now(), limit = 4 * 60 * 60 * 1000; // 4 hour limit in milliseconds
+    const recent = arr.filter(x => now - x.time < limit); // Count recent submissions
+    if (recent.length >= 2) {
+      window.alert('Limit 2 per 4h'); // Enforce 2 submissions per 4 hours
+      return;
     }
     
-    // Get current user for tracking
-    const user = atob(sessionStorage.getItem('authUser') || ''); // Decode username
-    const key = `submissions_${user}`; // User-specific storage key
-    const arr = JSON.parse(localStorage.getItem(key) || '[]'); // Get user's submissions
+    // Convert File object to base64 string for localStorage storage
+    const base64 = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]); // Extract base64 data
+      reader.readAsDataURL(renamedFile);
+    });
     
-    // Save all submissions to user-specific storage
-    arr.push(...submissions);
+    // Trim notes and treat as empty if only spaces
+    const trimmedNotes = notes.trim();
+    // Create submission object with both File and base64 content
+    const submission = {
+      filename: expectedFilename,
+      file: renamedFile, // Use renamed File object
+      content: base64, // Store base64 for localStorage persistence
+      notes: trimmedNotes ? sanitizeInput(trimmedNotes) : '', // Sanitize notes, treat empty if only spaces
+      time: now,
+      stage: 'Stage1',
+      user
+    };
+    
+    // Save to user-specific storage
+    arr.push(submission);
     localStorage.setItem(key, JSON.stringify(arr));
     
     // Save to global submissions list for reviewers to access
+    // Note: File objects cannot be serialized to JSON, so we store base64 only
     const all = JSON.parse(localStorage.getItem('submissions') || '[]');
-    const serializableSubmissions = submissions.map(submission => ({
+    const serializableSubmission = {
       ...submission,
       file: null, // Remove File object for JSON serialization
-    }));
-    all.push(...serializableSubmissions);
+      content: base64 // Keep base64 content for storage
+    };
+    all.push(serializableSubmission);
     localStorage.setItem('submissions', JSON.stringify(all));
     
-    // Store submitted document info for progress display (show first file)
+    // Store submitted document info for progress display
     setSubmittedDocument({
-      filename: submissions[0].filename,
+      filename: filename,
       stage: 'Stage0',
       status: 'Pending'
     });
@@ -454,11 +425,11 @@ export default function StudentSubmit() {
     setShowProgress(true);
     
     // Show success message and reset form
-    setAlert(`Successfully submitted ${submissions.length} file(s)!`);
+    setAlert('Submitted successfully!');
     setTimeout(() => setAlert(''), 10000); // Clear alert after 10 seconds
     setFirst(''); // Clear first name
     setLast(''); // Clear last name
-    setFiles([]); // Clear file selection
+    setFile(null); // Clear file selection
     setNotes(''); // Clear notes
   };
 
@@ -529,21 +500,8 @@ export default function StudentSubmit() {
         }
       `}</style>
       {/* Settings Bar */}
-      <div style={{
-        position: 'fixed',
-        top: 18,
-        right: 28,
-        zIndex: 2001,
-        background: dark ? 'rgba(36,18,54,0.98)' : '#f7fafc',
-        borderRadius: 12,
-        boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
-        padding: '1rem 1.5rem',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 18,
-        marginBottom: '2.5rem', // Add vertical space below the bar
-      }}>
-        <label htmlFor="darkModeToggle" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={styles.settingsBar}>
+        <label htmlFor="darkModeToggle" style={{ display: 'flex', alignItems: 'center' }}>
           <input
             id="darkModeToggle"
             name="darkMode"
@@ -555,23 +513,20 @@ export default function StudentSubmit() {
           <span style={styles.slider(dark)}>
             <span style={styles.sliderBefore(dark)}>{dark ? '🌙' : '☀'}</span>
           </span>
-          <span style={{ color: dark ? '#e0d6f7' : '#201436', fontWeight: 500 }}>Dark Mode</span>
         </label>
-        <label htmlFor="fontSizeSelect" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ color: dark ? '#e0d6f7' : '#201436', fontWeight: 500 }}>Font Size</span>
-          <select
-            id="fontSizeSelect"
-            name="fontSize"
-            value={fontSize}
-            onChange={e => setFontSize(e.target.value)}
-            style={styles.select(dark)}
-          >
-            <option value="14px">Default</option>
-            <option value="16px">Large</option>
-            <option value="12px">Small</option>
-          </select>
-        </label>
-        <label htmlFor="confirmToggle" style={{ display: 'flex', alignItems: 'center', gap: 8, color: dark ? '#e0d6f7' : '#201436', fontWeight: 500 }}>
+        <label htmlFor="fontSizeSelect" style={{ display: 'none' }}>Font Size</label>
+        <select
+          id="fontSizeSelect"
+          name="fontSize"
+          value={fontSize}
+          onChange={e => setFontSize(e.target.value)}
+          style={styles.select(dark)}
+        >
+          <option value="14px">Default</option>
+          <option value="16px">Large</option>
+          <option value="12px">Small</option>
+        </select>
+        <label htmlFor="confirmToggle" style={{ fontFamily: "'BentonSans Book'" }}>
           <input
             id="confirmToggle"
             name="confirmOn"
@@ -587,7 +542,7 @@ export default function StudentSubmit() {
       <div style={styles.container(dark)}>
         {showProgress && submittedDocument ? (
           <>
-            <h1 style={styles.h1(dark)}>Documents Submitted!</h1>
+            <h1 style={styles.h1(dark)}>Document Submitted!</h1>
             <WorkflowProgress 
               currentStage={submittedDocument.stage}
               status={submittedDocument.status}
@@ -604,7 +559,7 @@ export default function StudentSubmit() {
                 onMouseEnter={() => setHover(true)}
                 onMouseLeave={() => setHover(false)}
               >
-                📝 Submit More Documents
+                📝 Submit Another Document
               </button>
             </div>
           </>
@@ -618,7 +573,7 @@ export default function StudentSubmit() {
           type="text"
           placeholder="First Name"
           value={first}
-          onChange={e => setFirst(e.target.value)}
+          onChange={e => setFirst(sanitizeInput(e.target.value))}
           style={styles.input(dark, false)}
         />
         <label htmlFor="lastName" style={{ display: 'none' }}>Last Name</label>
@@ -628,16 +583,30 @@ export default function StudentSubmit() {
           type="text"
           placeholder="Last Name"
           value={last}
-          onChange={e => setLast(e.target.value)}
+          onChange={e => setLast(sanitizeInput(e.target.value))}
           style={styles.input(dark, false)}
         />
-        <FileUpload
-          files={files}
-          onFilesChange={setFiles}
-          dark={dark}
-          multiple={true}
-          maxFiles={5}
-          maxSizeMB={10}
+        <label htmlFor="pdfFile" style={{ display: 'none' }}>PDF File</label>
+        <input
+          id="pdfFile"
+          name="pdfFile"
+          type="file"
+          accept=".pdf"
+          onChange={e => {
+            const selectedFile = e.target.files[0];
+            if (selectedFile) {
+              if (!validateFileType(selectedFile)) {
+                e.target.value = '';
+                return;
+              }
+              if (!validateFileSize(selectedFile)) {
+                e.target.value = '';
+                return;
+              }
+              setFile(selectedFile);
+            }
+          }}
+          style={styles.fileInput(dark)}
         />
         <label htmlFor="notes" style={{ display: 'none' }}>Notes</label>
         <textarea
@@ -654,9 +623,8 @@ export default function StudentSubmit() {
           style={styles.button(dark, hover)}
           onMouseEnter={() => setHover(true)}
           onMouseLeave={() => setHover(false)}
-          disabled={files.length === 0}
         >
-          📤 Submit {files.length > 0 ? `(${files.length} file${files.length > 1 ? 's' : ''})` : ''}
+          📤 Submit
         </button>
         {alert && <div style={styles.alert(dark)}>{alert}</div>}
           </>
