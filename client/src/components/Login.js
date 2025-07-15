@@ -260,46 +260,64 @@ export default function Login() {
     localStorage.setItem('fontSize', fontSize);
   }, [fontSize]);
 
-  // Handle login form submission with client-side authentication
+  // Handle login form submission with proper API authentication
   const handleSubmit = async (e) => {
     e.preventDefault(); // Prevent default form submission
     setError(''); // Clear any previous errors
     setLoading(true); // Show loading state
     
-    // Simple client-side authentication credentials
-    // All passwords match their usernames for simplicity
-    const credentials = {
-      'student': 'student',
-      'librarian': 'librarian', 
-      'reviewer1': 'reviewer1',
-      'admin': 'admin',
-      'finalreviewer': 'finalreviewer'
-    };
-    
-    // Check if provided credentials match stored credentials
-    if (credentials[username] === password) {
-      // Determine user role based on username
-      let role;
-      if (username === 'student') role = 'student';
-      else if (username === 'librarian') role = 'librarian';
-      else if (username === 'reviewer') role = 'reviewer';
-      else if (username === 'admin') role = 'admin';
-      else if (username === 'finalreviewer') role = 'reviewer';
-      else role = 'student'; // Default fallback role
+    try {
+      // Try to call the backend authentication API first
+      const response = await api.post('/submissions/login', {
+        username,
+        password
+      });
       
-      // Store authentication data in sessionStorage (base64 encoded for basic obfuscation)
-      sessionStorage.setItem('authUser', btoa(username));
-      sessionStorage.setItem('authRole', btoa(role));
-      sessionStorage.setItem('expiresAt', (Date.now() + 15 * 60 * 1000).toString()); // 15 minute session
+      if (response.data && response.data.username && response.data.role) {
+        // Store authentication data in sessionStorage (base64 encoded for basic obfuscation)
+        sessionStorage.setItem('authUser', btoa(response.data.username));
+        sessionStorage.setItem('authRole', btoa(response.data.role));
+        sessionStorage.setItem('expiresAt', (Date.now() + 15 * 60 * 1000).toString()); // 15 minute session
+        
+        // Navigate to appropriate route based on user role
+        navigate(roleToRoute[response.data.role] || '/login');
+      } else {
+        setError('Invalid response from server.');
+      }
+    } catch (err) {
+      // If server is not available, use fallback authentication
+      console.log('Server authentication failed, trying fallback...');
       
-      // Navigate to appropriate route based on user role
-      navigate(roleToRoute[role] || '/login');
-    } else {
-      // Show error message for invalid credentials
-      setError('Invalid username or password.');
+      // Fallback user credentials (same as in users.json but with plain text passwords)
+      const fallbackUsers = [
+        { username: 'student1', password: 'password', role: 'student' },
+        { username: 'student2', password: 'password', role: 'student' },
+        { username: 'student3', password: 'password', role: 'student' },
+        { username: 'student4', password: 'password', role: 'student' },
+        { username: 'librarian1', password: 'password', role: 'librarian' },
+        { username: 'librarian2', password: 'password', role: 'librarian' },
+        { username: 'reviewer1', password: 'password', role: 'reviewer' },
+        { username: 'reviewer2', password: 'password', role: 'reviewer' },
+        { username: 'admin1', password: 'password', role: 'admin' }
+      ];
+      
+      // Check if credentials match fallback users
+      const user = fallbackUsers.find(u => u.username === username && u.password === password);
+      
+      if (user) {
+        // Store authentication data in sessionStorage (base64 encoded for basic obfuscation)
+        sessionStorage.setItem('authUser', btoa(user.username));
+        sessionStorage.setItem('authRole', btoa(user.role));
+        sessionStorage.setItem('expiresAt', (Date.now() + 15 * 60 * 1000).toString()); // 15 minute session
+        
+        // Navigate to appropriate route based on user role
+        navigate(roleToRoute[user.role] || '/login');
+      } else {
+        setError('Invalid username or password.');
+      }
+    } finally {
+      setLoading(false); // Hide loading state
     }
-    
-    setLoading(false); // Hide loading state
   };
 
   return (
