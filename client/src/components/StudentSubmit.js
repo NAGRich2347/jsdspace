@@ -479,8 +479,9 @@ export default function StudentSubmit() {
    * @param {string} filename - The name of the returned document
    */
   const handleOpenDocumentFromNotification = (filename) => {
-    // For students, we could show a message or navigate to a submissions view
+    // For students, navigate to documents page to see returned document
     window.alert(`Document ${filename} has been returned to you. Please review and resubmit if needed.`);
+    navigate('/documents');
   };
 
   return (
@@ -659,6 +660,16 @@ export default function StudentSubmit() {
           📤 Submit {files.length > 0 ? `(${files.length} file${files.length > 1 ? 's' : ''})` : ''}
         </button>
         {alert && <div style={styles.alert(dark)}>{alert}</div>}
+        <div style={{ marginTop: '1rem' }}>
+          <button
+            onClick={() => navigate('/documents')}
+            style={styles.button(dark, hover)}
+            onMouseEnter={() => setHover(true)}
+            onMouseLeave={() => setHover(false)}
+          >
+            📄 View My Documents
+          </button>
+        </div>
           </>
         )}
       </div>

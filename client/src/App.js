@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Login from './components/Login';
 import StudentSubmit from './components/StudentSubmit';
+import StudentDocuments from './components/StudentDocuments';
 import LibrarianReview from './components/LibrarianReview';
 import ManualControls from './components/ManualControls';
 import AdminDashboard from './components/AdminDashboard';
@@ -90,6 +91,7 @@ function AppRoutes() {
         <Routes>
           {/* Student workflow routes */}
           <Route path="/upload" element={<UploadForm />} />
+          <Route path="/documents" element={<StudentDocuments />} />
           {/* <Route path="/metadata" element={<MetadataForm />} /> */}
           
           {/* Review and publish routes (commented out - using separate full-screen pages) */}

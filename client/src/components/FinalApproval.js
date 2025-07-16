@@ -289,7 +289,7 @@ const styles = {
 // Returns the display name for a submission
 const getDisplayFilename = (s) => {
   if (!s) return '';
-  if (s.filename && s.filename.match(/^.+_.+_Stage1\.pdf$/i)) return s.filename;
+  if (s.filename && s.filename.match(/^.+_.+_Stage\d+\.pdf$/i)) return s.filename;
   // Try to parse from user/first/last if available
   let first = s.first || (s.user ? s.user.split('_')[0] : '');
   let last = s.last || (s.user ? s.user.split('_')[1] : '');
@@ -297,19 +297,39 @@ const getDisplayFilename = (s) => {
 };
 
 /**
- * Automatically rename file based on stage progression
- * Extracts the original student name and updates the stage number
+ * Normalize names by converting spaces to underscores and making lowercase
  * 
- * @param {string} originalFilename - The original filename (e.g., "john_doe_Stage1.pdf")
- * @param {string} newStage - The new stage (e.g., "Stage2", "Stage3")
- * @returns {string} - The renamed filename (e.g., "john_doe_Stage2.pdf")
+ * @param {string} name - The name to normalize
+ * @returns {string} Normalized name with underscores and lowercase
  */
-const autoRenameFile = (originalFilename, newStage) => {
+const normalizeName = (name) => {
+  // First replace multiple spaces with single underscores, then trim and lowercase
+  return name.replace(/\s+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
+};
+
+/**
+ * Automatically rename file based on stage progression and current user
+ * Extracts the original student name and updates the stage number
+ * For reviewer uploads, includes reviewer name in the filename
+ * 
+ * @param {string} originalFilename - The original filename (e.g., "john_doe_librarian1_Stage2.pdf")
+ * @param {string} newStage - The new stage (e.g., "Stage2", "Stage3")
+ * @param {string} currentUser - The current user (librarian/reviewer) name
+ * @param {boolean} includeUser - Whether to include the current user's name in the filename
+ * @returns {string} - The renamed filename (e.g., "john_doe_librarian1_reviewer1_Stage3.pdf")
+ */
+const autoRenameFile = (originalFilename, newStage, currentUser = null, includeUser = false) => {
   // Extract the base name (everything before the last underscore and stage number)
   const match = originalFilename.match(/^(.+)_Stage\d+\.pdf$/i);
   if (match) {
-    const baseName = match[1]; // e.g., "john_doe"
-    return `${baseName}_${newStage}.pdf`;
+    const baseName = match[1]; // e.g., "john_doe" or "john_doe_librarian1"
+    
+    if (includeUser && currentUser) {
+      const normalizedUser = normalizeName(currentUser);
+      return `${baseName}_${normalizedUser}_${newStage}.pdf`;
+    } else {
+      return `${baseName}_${newStage}.pdf`;
+    }
   }
   // Fallback: if we can't parse the original name, just append the stage
   return originalFilename.replace(/\.pdf$/i, `_${newStage}.pdf`);
@@ -441,8 +461,11 @@ export default function FinalApproval() {
     if (confirmOn && !window.confirm('Approve and publish?')) return;
     const updatedSubs = submissions.filter(x => x !== selected);
     
-    // Automatically rename the file to Stage3 (approved/published)
-    const newFilename = autoRenameFile(selected.filename, 'Stage3');
+    // Get current reviewer name
+    const currentUser = atob(sessionStorage.getItem('authUser') || '');
+    
+    // Automatically rename the file to Stage3 (approved/published) with reviewer name
+    const newFilename = autoRenameFile(selected.filename, 'Stage3', currentUser, true);
     const approvedSubmission = { 
       ...selected, 
       stage: 'Stage3', 
@@ -476,12 +499,16 @@ export default function FinalApproval() {
     
     const updatedSubs = submissions.filter(x => x !== selected);
     
-    // Automatically rename the file back to Stage1
-    const newFilename = autoRenameFile(selected.filename, 'Stage1');
+    // Get current reviewer name
+    const currentUser = atob(sessionStorage.getItem('authUser') || '');
+    
+    // Automatically rename the file back to Stage1 with reviewer name and returnedFromReview flag
+    const newFilename = autoRenameFile(selected.filename, 'Stage1', currentUser, true);
     const newSel = { 
       ...selected, 
       stage: 'Stage1', 
       filename: newFilename,
+      returnedFromReview: true, // Flag to indicate this was sent back from final review
       time: Date.now() 
     };
     updatedSubs.push(newSel);
@@ -699,24 +726,23 @@ export default function FinalApproval() {
       return;
     }
 
-    // Validate filename matches naming convention
-    const expectedFilename = selected.filename;
-    const droppedFilename = pdfFile.name;
+    // Get current reviewer name
+    const currentUser = atob(sessionStorage.getItem('authUser') || '');
     
-    // Check if the dropped file follows the naming convention
-    if (!droppedFilename.match(/^.+_.+_Stage\d+\.pdf$/i)) {
-      window.alert('Please use the correct naming convention: first_last_StageX.pdf');
-      return;
-    }
+    // For reviewer uploads, we accept any PDF file and will automatically rename it
+    // No need to validate the dropped filename against naming conventions
+    const droppedFilename = pdfFile.name;
 
-    // Automatically rename the dropped file to match the current stage
-    const renamedFile = new File([pdfFile], selected.filename, { type: 'application/pdf' });
+    // Automatically rename the dropped file to include reviewer name and match the current stage
+    const newFilename = autoRenameFile(selected.filename, selected.stage, currentUser, true);
+    const renamedFile = new File([pdfFile], newFilename, { type: 'application/pdf' });
     
     // Update the submission with the new file
     const updatedSubs = submissions.map(s => {
       if (s.filename === selected.filename) {
         return {
           ...s,
+          filename: newFilename, // Update filename to include reviewer name
           file: renamedFile, // Store the renamed File object
           content: null, // Clear legacy base64 content
           time: Date.now()
@@ -746,7 +772,7 @@ export default function FinalApproval() {
     
     localStorage.setItem('submissions', JSON.stringify(serializableSubs));
     setSubmissions(updatedSubs);
-    setSelected(updatedSubs.find(s => s.filename === selected.filename));
+    setSelected(updatedSubs.find(s => s.filename === newFilename));
     setSuccessMsg('PDF updated successfully!');
     setTimeout(() => setSuccessMsg(''), 5000);
   };

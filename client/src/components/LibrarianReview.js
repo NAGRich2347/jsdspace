@@ -331,19 +331,39 @@ const getDisplayFilename = (s) => {
 };
 
 /**
- * Automatically rename file based on stage progression
+ * Normalize names by converting spaces to underscores and making lowercase
+ * 
+ * @param {string} name - The name to normalize
+ * @returns {string} Normalized name with underscores and lowercase
+ */
+const normalizeName = (name) => {
+  // First replace multiple spaces with single underscores, then trim and lowercase
+  return name.replace(/\s+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
+};
+
+/**
+ * Automatically rename file based on stage progression and current user
  * Extracts the original student name and updates the stage number
+ * For librarian uploads, includes librarian name in the filename
  * 
  * @param {string} originalFilename - The original filename (e.g., "john_doe_Stage1.pdf")
  * @param {string} newStage - The new stage (e.g., "Stage2", "Stage3")
- * @returns {string} - The renamed filename (e.g., "john_doe_Stage2.pdf")
+ * @param {string} currentUser - The current user (librarian/reviewer) name
+ * @param {boolean} includeUser - Whether to include the current user's name in the filename
+ * @returns {string} - The renamed filename (e.g., "john_doe_librarian1_Stage2.pdf")
  */
-const autoRenameFile = (originalFilename, newStage) => {
+const autoRenameFile = (originalFilename, newStage, currentUser = null, includeUser = false) => {
   // Extract the base name (everything before the last underscore and stage number)
   const match = originalFilename.match(/^(.+)_Stage\d+\.pdf$/i);
   if (match) {
     const baseName = match[1]; // e.g., "john_doe"
-    return `${baseName}_${newStage}.pdf`;
+    
+    if (includeUser && currentUser) {
+      const normalizedUser = normalizeName(currentUser);
+      return `${baseName}_${normalizedUser}_${newStage}.pdf`;
+    } else {
+      return `${baseName}_${newStage}.pdf`;
+    }
   }
   // Fallback: if we can't parse the original name, just append the stage
   return originalFilename.replace(/\.pdf$/i, `_${newStage}.pdf`);
@@ -377,6 +397,7 @@ export default function LibrarianReview() {
   const [sidebarOpen, setSidebarOpen] = useState(false); // Sidebar visibility
   const [search, setSearch] = useState(''); // Search filter for submissions
   const [settingsOpen, setSettingsOpen] = useState(false); // Settings panel visibility
+  const [activeTab, setActiveTab] = useState('review'); // Active tab: 'review', 'returned', or 'sent-back'
   
   // Data state management
   const [submissions, setSubmissions] = useState([]); // All submissions from localStorage
@@ -480,8 +501,19 @@ export default function LibrarianReview() {
     return () => window.removeEventListener('scroll', onScroll);
   }, [selected, notes]);
 
-  // Filtered submissions for Stage1
-  const filtered = submissions.filter(s => s.stage === 'Stage1' && (!search || s.filename.toLowerCase().includes(search.toLowerCase())));
+  // Filtered submissions based on active tab, sorted by submission time (oldest first)
+  const filtered = submissions.filter(s => {
+    const matchesSearch = !search || s.filename.toLowerCase().includes(search.toLowerCase());
+    if (activeTab === 'review') {
+      return s.stage === 'Stage1' && matchesSearch;
+    } else if (activeTab === 'returned') {
+      return s.stage === 'Stage2' && matchesSearch;
+    } else if (activeTab === 'sent-back') {
+      // Documents that were sent back to librarian from final review
+      return s.stage === 'Stage1' && s.returnedFromReview && matchesSearch;
+    }
+    return false;
+  }).sort((a, b) => a.time - b.time); // Sort by submission time, oldest first
 
   // Select a submission
   const selectSubmission = (s, idx) => {
@@ -499,8 +531,11 @@ export default function LibrarianReview() {
     if (confirmOn && !window.confirm('Send to reviewer?')) return;
     const updatedSubs = submissions.filter(x => x !== selected);
     
-    // Automatically rename the file to Stage2
-    const newFilename = autoRenameFile(selected.filename, 'Stage2');
+    // Get current librarian name
+    const currentUser = atob(sessionStorage.getItem('authUser') || '');
+    
+    // Automatically rename the file to Stage2 with librarian name
+    const newFilename = autoRenameFile(selected.filename, 'Stage2', currentUser, true);
     const newSel = { 
       ...selected, 
       stage: 'Stage2', 
@@ -536,6 +571,54 @@ export default function LibrarianReview() {
     setSuccessMsg('Sent to Reviewer!');
     setTimeout(() => setSuccessMsg(''), 5000);
     window.alert('Sent to Reviewer');
+  };
+
+  // Send returned document back to final review
+  const sendReturnedToFinalReview = async () => {
+    if (!selected) return window.alert('Select one');
+    if (confirmOn && !window.confirm('Send returned document back to final review?')) return;
+    const updatedSubs = submissions.filter(x => x !== selected);
+    
+    // Get current librarian name
+    const currentUser = atob(sessionStorage.getItem('authUser') || '');
+    
+    // Automatically rename the file to Stage2 with librarian name
+    const newFilename = autoRenameFile(selected.filename, 'Stage2', currentUser, true);
+    const newSel = { 
+      ...selected, 
+      stage: 'Stage2', 
+      filename: newFilename,
+      time: Date.now() 
+    };
+    updatedSubs.push(newSel);
+    
+    // Convert File objects to base64 for localStorage
+    const serializableSubs = await Promise.all(updatedSubs.map(async sub => {
+      if (sub.file instanceof File) {
+        // Convert File to base64
+        const base64 = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(',')[1]);
+          reader.readAsDataURL(sub.file);
+        });
+        
+        return {
+          ...sub,
+          content: base64,
+          file: null // Remove File object for serialization
+        };
+      }
+      return sub;
+    }));
+    
+    localStorage.setItem('submissions', JSON.stringify(serializableSubs));
+    setSubmissions(updatedSubs);
+    setSelected(null);
+    setNotes('');
+    setFileInputKey(Date.now()); // Reset file input
+    setSuccessMsg('Sent to Final Review!');
+    setTimeout(() => setSuccessMsg(''), 5000);
+    window.alert('Sent to Final Review');
   };
 
   // Send back to student
@@ -795,24 +878,23 @@ export default function LibrarianReview() {
       return;
     }
 
-    // Validate filename matches naming convention
-    const expectedFilename = selected.filename;
-    const droppedFilename = pdfFile.name;
+    // Get current librarian name
+    const currentUser = atob(sessionStorage.getItem('authUser') || '');
     
-    // Check if the dropped file follows the naming convention
-    if (!droppedFilename.match(/^.+_.+_Stage\d+\.pdf$/i)) {
-      window.alert('Please use the correct naming convention: first_last_StageX.pdf');
-      return;
-    }
+    // For librarian uploads, we accept any PDF file and will automatically rename it
+    // No need to validate the dropped filename against naming conventions
+    const droppedFilename = pdfFile.name;
 
-    // Automatically rename the dropped file to match the current stage
-    const renamedFile = new File([pdfFile], selected.filename, { type: 'application/pdf' });
+    // Automatically rename the dropped file to include librarian name and match the current stage
+    const newFilename = autoRenameFile(selected.filename, selected.stage, currentUser, true);
+    const renamedFile = new File([pdfFile], newFilename, { type: 'application/pdf' });
     
     // Update the submission with the new file
     const updatedSubs = submissions.map(s => {
       if (s.filename === selected.filename) {
         return {
           ...s,
+          filename: newFilename, // Update filename to include librarian name
           file: renamedFile, // Store the renamed File object
           content: null, // Clear legacy base64 content
           time: Date.now()
@@ -842,7 +924,7 @@ export default function LibrarianReview() {
     
     localStorage.setItem('submissions', JSON.stringify(serializableSubs));
     setSubmissions(updatedSubs);
-    setSelected(updatedSubs.find(s => s.filename === selected.filename));
+    setSelected(updatedSubs.find(s => s.filename === newFilename));
     setSuccessMsg('PDF updated successfully!');
     setTimeout(() => setSuccessMsg(''), 5000);
   };
@@ -941,6 +1023,87 @@ export default function LibrarianReview() {
       </div>
       {/* Sidebar */}
       <div style={styles.sidebar(dark, sidebarOpen)}>
+        {/* Tab Navigation - Vertical Layout */}
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          marginBottom: '1rem',
+          borderBottom: `1px solid ${dark ? '#4a5568' : '#e2e8f0'}`,
+        }}>
+          <button
+            onClick={() => {
+              setActiveTab('review');
+              setSelected(null);
+              setNotes('');
+            }}
+            style={{
+              width: '100%',
+              padding: '0.75rem 1rem',
+              marginBottom: '0.5rem',
+              background: activeTab === 'review' ? (dark ? '#4F2683' : '#a259e6') : 'transparent',
+              color: activeTab === 'review' ? '#fff' : (dark ? '#e0d6f7' : '#201436'),
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontFamily: "'BentonSans Book'",
+              fontSize: '0.9rem',
+              fontWeight: activeTab === 'review' ? 600 : 400,
+              transition: 'all 0.3s ease',
+              textAlign: 'left',
+            }}
+          >
+            📋 Review ({submissions.filter(s => s.stage === 'Stage1' && !s.returnedFromReview).length})
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('returned');
+              setSelected(null);
+              setNotes('');
+            }}
+            style={{
+              width: '100%',
+              padding: '0.75rem 1rem',
+              marginBottom: '0.5rem',
+              background: activeTab === 'returned' ? (dark ? '#4F2683' : '#a259e6') : 'transparent',
+              color: activeTab === 'returned' ? '#fff' : (dark ? '#e0d6f7' : '#201436'),
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontFamily: "'BentonSans Book'",
+              fontSize: '0.9rem',
+              fontWeight: activeTab === 'returned' ? 600 : 400,
+              transition: 'all 0.3s ease',
+              textAlign: 'left',
+            }}
+          >
+            ↩️ Returned ({submissions.filter(s => s.stage === 'Stage2').length})
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('sent-back');
+              setSelected(null);
+              setNotes('');
+            }}
+            style={{
+              width: '100%',
+              padding: '0.75rem 1rem',
+              marginBottom: '0.5rem',
+              background: activeTab === 'sent-back' ? (dark ? '#4F2683' : '#a259e6') : 'transparent',
+              color: activeTab === 'sent-back' ? '#fff' : (dark ? '#e0d6f7' : '#201436'),
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontFamily: "'BentonSans Book'",
+              fontSize: '0.9rem',
+              fontWeight: activeTab === 'sent-back' ? 600 : 400,
+              transition: 'all 0.3s ease',
+              textAlign: 'left',
+            }}
+          >
+            🔄 Sent Back ({submissions.filter(s => s.stage === 'Stage1' && s.returnedFromReview).length})
+          </button>
+        </div>
+        
         <label htmlFor="searchInput" style={{ display: 'none' }}>Search submissions</label>
         <input
           id="searchInput"
@@ -1021,7 +1184,11 @@ export default function LibrarianReview() {
           overflowY: 'visible',
           // Remove marginTop to avoid double spacing
         }}>
-          <h1 style={styles.h1(dark)}>Librarian Review</h1>
+          <h1 style={styles.h1(dark)}>
+            {activeTab === 'review' ? 'Librarian Review' : 
+             activeTab === 'returned' ? 'Returned Documents' : 
+             'Documents Sent Back'}
+          </h1>
           <div style={{ fontWeight: 500, marginBottom: 12 }}>{selected ? getDisplayFilename(selected) : ''}</div>
           <div style={{
             display: 'flex',
@@ -1087,7 +1254,9 @@ export default function LibrarianReview() {
                       marginBottom: '2rem',
                       fontSize: '1rem'
                     }}>
-                      Ready for download and modification
+                      {activeTab === 'review' ? 'Ready for download and modification' : 
+                       activeTab === 'returned' ? 'Returned document ready for review' :
+                       'Document sent back from final review'}
                     </p>
                     <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'center' }}>
                       <button
@@ -1150,13 +1319,17 @@ export default function LibrarianReview() {
                       marginBottom: '1rem',
                       fontSize: '1.5rem'
                     }}>
-                      Select a submission
+                      {activeTab === 'review' ? 'Select a submission' : 
+                       activeTab === 'returned' ? 'Select a returned document' :
+                       'Select a sent-back document'}
                     </h3>
                     <p style={{ 
                       color: dark ? '#bbaed6' : '#666', 
                       fontSize: '1rem'
                     }}>
-                      Choose a document from the sidebar to download and modify
+                      {activeTab === 'review' ? 'Choose a document from the sidebar to download and modify' : 
+                       activeTab === 'returned' ? 'Choose a returned document from the sidebar to review' :
+                       'Choose a document sent back from final review'}
                     </p>
                   </div>
                 )}
@@ -1238,7 +1411,9 @@ export default function LibrarianReview() {
                 fontWeight: 600,
                 color: dark ? '#e2e8f0' : '#2d3748',
               }}>
-                Review Controls
+                {activeTab === 'review' ? 'Review Controls' : 
+                 activeTab === 'returned' ? 'Returned Document Controls' :
+                 'Sent Back Document Controls'}
               </h3>
               
               <div>
@@ -1295,40 +1470,124 @@ export default function LibrarianReview() {
               </div>
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 'auto' }}>
-                <button
-                  onClick={sendToReviewer}
-                  disabled={!selected}
-                  style={{
-                    ...styles.button(dark),
-                    width: '100%',
-                  }}
-                >
-                  Submit Review
-                </button>
-                
-                <button
-                  onClick={sendBackToStudent}
-                  disabled={!selected}
-                  title="⚠️ Send this submission back to the student for corrections"
-                  style={{
-                    ...styles.button(dark),
-                    width: '100%',
-                    backgroundColor: '#dc2626',
-                    border: '2px solid #dc2626',
-                    position: 'relative',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.style.backgroundColor = '#b91c1c';
-                    e.target.style.borderColor = '#b91c1c';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.backgroundColor = '#dc2626';
-                    e.target.style.borderColor = '#dc2626';
-                  }}
-                >
-                  <span style={{ marginRight: 8 }}>⚠️</span>
-                  Send Back to Student
-                </button>
+                {activeTab === 'review' ? (
+                  <>
+                    <button
+                      onClick={sendToReviewer}
+                      disabled={!selected}
+                      style={{
+                        ...styles.button(dark),
+                        width: '100%',
+                      }}
+                    >
+                      Submit Review
+                    </button>
+                    
+                    <button
+                      onClick={sendBackToStudent}
+                      disabled={!selected}
+                      title="⚠️ Send this submission back to the student for corrections"
+                      style={{
+                        ...styles.button(dark),
+                        width: '100%',
+                        backgroundColor: '#dc2626',
+                        border: '2px solid #dc2626',
+                        position: 'relative',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.backgroundColor = '#b91c1c';
+                        e.target.style.borderColor = '#b91c1c';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.backgroundColor = '#dc2626';
+                        e.target.style.borderColor = '#dc2626';
+                      }}
+                    >
+                      <span style={{ marginRight: 8 }}>⚠️</span>
+                      Send Back to Student
+                    </button>
+                  </>
+                ) : activeTab === 'returned' ? (
+                  <>
+                    <button
+                      onClick={sendReturnedToFinalReview}
+                      disabled={!selected}
+                      style={{
+                        ...styles.button(dark),
+                        width: '100%',
+                        backgroundColor: '#059669',
+                        border: '2px solid #059669',
+                      }}
+                      title="Send this returned document back to final review"
+                    >
+                      📤 Send to Final Review
+                    </button>
+                    
+                    <button
+                      onClick={sendBackToStudent}
+                      disabled={!selected}
+                      title="⚠️ Send this submission back to the student for corrections"
+                      style={{
+                        ...styles.button(dark),
+                        width: '100%',
+                        backgroundColor: '#dc2626',
+                        border: '2px solid #dc2626',
+                        position: 'relative',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.backgroundColor = '#b91c1c';
+                        e.target.style.borderColor = '#b91c1c';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.backgroundColor = '#dc2626';
+                        e.target.style.borderColor = '#dc2626';
+                      }}
+                    >
+                      <span style={{ marginRight: 8 }}>⚠️</span>
+                      Send Back to Student
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={sendToReviewer}
+                      disabled={!selected}
+                      style={{
+                        ...styles.button(dark),
+                        width: '100%',
+                        backgroundColor: '#059669',
+                        border: '2px solid #059669',
+                      }}
+                      title="Send this sent-back document to final review"
+                    >
+                      📤 Send to Final Review
+                    </button>
+                    
+                    <button
+                      onClick={sendBackToStudent}
+                      disabled={!selected}
+                      title="⚠️ Send this submission back to the student for corrections"
+                      style={{
+                        ...styles.button(dark),
+                        width: '100%',
+                        backgroundColor: '#dc2626',
+                        border: '2px solid #dc2626',
+                        position: 'relative',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.backgroundColor = '#b91c1c';
+                        e.target.style.borderColor = '#b91c1c';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.backgroundColor = '#dc2626';
+                        e.target.style.borderColor = '#dc2626';
+                      }}
+                    >
+                      <span style={{ marginRight: 8 }}>⚠️</span>
+                      Send Back to Student
+                    </button>
+                  </>
+                )}
                 <button
                   onClick={() => {
                     if (!selected) return;
