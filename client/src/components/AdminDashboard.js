@@ -68,7 +68,16 @@ export default function AdminDashboard() {
     // Combine submissions with admin logs for comprehensive display
     const allEntries = [...storedSubmissions, ...adminLog];
     allEntries.sort((a, b) => b.time - a.time); // Sort by time, newest first
-    setSubmissions(allEntries); // Set combined data
+    
+    // Add a flag to distinguish between submissions and admin logs
+    const processedEntries = allEntries.map(entry => ({
+      ...entry,
+      isSubmission: !entry.action && (entry.content || entry.file) && entry.filename, // Use either content or file
+      isAdminLog: !!entry.action
+    }));
+    
+    console.log('Processed entries:', processedEntries);
+    setSubmissions(processedEntries); // Set combined data
   }, []);
 
   /**
@@ -90,10 +99,19 @@ export default function AdminDashboard() {
     console.log('Refreshed submissions:', storedSubmissions); // Debug log
     console.log('Refreshed admin log:', adminLog); // Debug log
     
-    // Combine submissions with admin logs for display
+    // Combine submissions with admin logs for comprehensive display
     const allEntries = [...storedSubmissions, ...adminLog];
     allEntries.sort((a, b) => b.time - a.time); // Sort by time, newest first
-    setSubmissions(allEntries); // Update state with fresh data
+    
+    // Add a flag to distinguish between submissions and admin logs
+    const processedEntries = allEntries.map(entry => ({
+      ...entry,
+      isSubmission: !entry.action && (entry.content || entry.file) && entry.filename, // Use either content or file
+      isAdminLog: !!entry.action
+    }));
+    
+    console.log('Processed entries:', processedEntries);
+    setSubmissions(processedEntries); // Update state with fresh data
   };
 
   /**
@@ -103,6 +121,17 @@ export default function AdminDashboard() {
    * when no real data is available, useful for testing and demonstrations.
    */
   const addSampleData = () => {
+    // Create a minimal valid PDF base64 content for testing
+    const minimalPDFBase64 = 'JVBERi0xLjQKJcOkw7zDtsO8DQoxIDAgb2JqDQo8PA0KL1R5cGUgL0NhdGFsb2cNCi9QYWdlcyAyIDAgUg0KPj4NCmVuZG9iag0KMiAwIG9iag0KPDwNCi9UeXBlIC9QYWdlcw0KL0NvdW50IDENCi9LaWRzIFsgMyAwIFIgXQ0KPj4NCmVuZG9iag0KMyAwIG9iag0KPDwNCi9UeXBlIC9QYWdlDQovUGFyZW50IDIgMCBSDQovUmVzb3VyY2VzIDw8DQovRm9udCA8PA0KL0YxIDQgMCBSDQo+Pg0KPj4NCi9Db250ZW50cyA1IDAgUg0KL01lZGlhQm94IFsgMCAwIDYxMiA3OTIgXQ0KPj4NCmVuZG9iag0KNCAwIG9iag0KPDwNCi9UeXBlIC9Gb250DQovU3VidHlwZSAvVHlwZTENCi9CYXNlRm9udCAvSGVsdmV0aWNhDQo+Pg0KZW5kb2JqDQo1IDAgb2JqDQo8PA0KL0xlbmd0aCAxNA0KPj4NCnN0cmVhbQ0KQlQNCjEwMCA3MDAgVEQKL0YxIDEyIFRqDQpIZWxsbyBXb3JsZCEgVGoNCkVUDQplbmRzdHJlYW0NCmVuZG9iag0KeHJlZg0KMCA2DQowMDAwMDAwMDAwIDY1NTM1IGYNCjAwMDAwMDAwMTAgMDAwMDAgbg0KMDAwMDAwMDA3OSAwMDAwMCBuDQowMDAwMDAwMTczIDAwMDAwIG4NCjAwMDAwMDAzMDEgMDAwMDAgbg0KMDAwMDAwMDM4MCAwMDAwMCBuDQp0cmFpbGVyDQo8PA0KL1NpemUgNg0KL1Jvb3QgMSAwIFINCj4+DQpzdGFydHhyZWYNCjQ5Mg0KJSVFT0Y=';
+    
+    // Test the base64 content first
+    try {
+      const testBinary = atob(minimalPDFBase64);
+      console.log('Sample PDF base64 is valid, binary length:', testBinary.length);
+    } catch (error) {
+      console.error('Sample PDF base64 is invalid:', error);
+    }
+    
     const sampleSubmissions = [
       {
         time: Date.now() - 3600000, // 1 hour ago
@@ -110,7 +139,7 @@ export default function AdminDashboard() {
         stage: 'Stage1',
         filename: 'john_doe_Stage1.pdf',
         notes: 'Initial submission',
-        content: 'sample_base64_content_1' // Sample base64 content for download
+        content: minimalPDFBase64
       },
       {
         time: Date.now() - 7200000, // 2 hours ago
@@ -118,7 +147,7 @@ export default function AdminDashboard() {
         stage: 'Stage2',
         filename: 'jane_smith_Stage2.pdf',
         notes: 'Reviewed by librarian',
-        content: 'sample_base64_content_2' // Sample base64 content for download
+        content: minimalPDFBase64
       },
       {
         time: Date.now() - 10800000, // 3 hours ago
@@ -126,11 +155,13 @@ export default function AdminDashboard() {
         stage: 'Stage3',
         filename: 'bob_wilson_Stage3.pdf',
         notes: 'Final approval pending',
-        content: 'sample_base64_content_3' // Sample base64 content for download
+        content: minimalPDFBase64
       }
     ];
+    console.log('Adding sample data:', sampleSubmissions);
     localStorage.setItem('submissions', JSON.stringify(sampleSubmissions)); // Save to localStorage
     setSubmissions(sampleSubmissions); // Update state
+    console.log('Sample data saved to localStorage');
   };
 
   /**
@@ -143,34 +174,140 @@ export default function AdminDashboard() {
    * @param {string} content - Base64 encoded PDF content
    */
   const downloadFile = (filename, content) => {
+    if (!filename || !content) {
+      console.error('Missing file information:', { filename, content: !!content });
+      window.alert('Missing file information. Cannot download.');
+      return;
+    }
+    
+    console.log('Download attempt:', { 
+      filename, 
+      contentType: typeof content,
+      isFile: content instanceof File,
+      contentLength: content instanceof File ? content.size : (typeof content === 'string' ? content.length : 'unknown'),
+      contentPreview: content instanceof File ? 'File object' : (typeof content === 'string' ? content.substring(0, 50) : 'not a string')
+    });
+    
     try {
-      // Convert base64 to blob
-      const byteCharacters = atob(content);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      // If it's a File object, use it directly
+      if (content instanceof File) {
+        console.log('Processing File object...');
+        const url = URL.createObjectURL(content);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        console.log(`Downloaded File object: ${filename}`);
+        return;
       }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: 'application/pdf' });
       
-      // Create download link
-      const url = window.URL.createObjectURL(blob);
+      // Handle base64 content
+      console.log('Processing base64 content...');
+      
+      // Check if content is actually a string
+      if (typeof content !== 'string') {
+        console.error('Content is not a string, cannot process as base64');
+        console.log('Content type:', typeof content);
+        console.log('Is File object:', content instanceof File);
+        console.log('Content keys:', content && typeof content === 'object' ? Object.keys(content) : 'not an object');
+        
+        // If it's a corrupted File object from localStorage (empty object), show helpful message
+        if (content && typeof content === 'object' && Object.keys(content).length === 0) {
+          console.error('Detected corrupted File object from localStorage');
+          window.alert('File object was corrupted during storage. This submission needs to be re-uploaded.');
+          return;
+        }
+        
+        window.alert('Invalid content type. Expected string or File but got: ' + typeof content);
+        return;
+      }
+      
+      let pdfData = content;
+      
+      // If it's a data URL, extract the base64 part
+      if (pdfData.startsWith('data:')) {
+        console.log('Extracting base64 from data URL...');
+        pdfData = pdfData.split(',')[1];
+      }
+      
+      // Clean the base64 string
+      pdfData = pdfData.replace(/\s+/g, '');
+      
+      console.log('Processed content length:', pdfData.length);
+      console.log('Content preview:', pdfData.substring(0, 200));
+      
+      // Validate that we have valid base64 content
+      if (!pdfData || pdfData.length < 10) {
+        console.error('Content too short:', pdfData.length);
+        window.alert(`Invalid file content. Content length: ${pdfData.length}. The file may be corrupted or empty.`);
+        return;
+      }
+      
+      // More lenient base64 validation
+      const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+      if (!base64Regex.test(pdfData)) {
+        console.error('Invalid base64 format. First 50 chars:', pdfData.substring(0, 50));
+        console.error('Contains invalid chars:', pdfData.match(/[^A-Za-z0-9+/=]/g));
+        window.alert('Invalid base64 format. The file content may be corrupted.');
+        return;
+      }
+      
+      // Decode base64 to binary
+      console.log('Decoding base64 to binary...');
+      const binary = atob(pdfData);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      
+      console.log('Binary length:', bytes.length);
+      console.log('First few bytes:', Array.from(bytes.slice(0, 10)));
+      
+      // Validate PDF header
+      const pdfHeader = String.fromCharCode(...bytes.slice(0, 4));
+      console.log('PDF header:', pdfHeader);
+      if (pdfHeader !== '%PDF') {
+        console.error('Invalid PDF header:', pdfHeader);
+        window.alert('Invalid PDF header. The file may not be a valid PDF.');
+        return;
+      }
+      
+      // Create blob and download
+      console.log('Creating blob and downloading...');
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       link.download = filename;
-      
-      // Trigger download
       document.body.appendChild(link);
       link.click();
-      
-      // Cleanup
       document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      URL.revokeObjectURL(url);
       
-      console.log(`Downloaded: ${filename}`);
+      console.log(`Successfully downloaded: ${filename}`);
     } catch (error) {
       console.error('Download error:', error);
-      window.alert('Error downloading file. The file content may be corrupted or missing.');
+      console.error('Error name:', error.name);
+      console.error('Error message:', error.message);
+      console.error('Filename:', filename);
+      console.error('Content type:', typeof content);
+      console.error('Is File:', content instanceof File);
+      console.error('Content length:', typeof content === 'string' ? content.length : (content instanceof File ? content.size : 'unknown'));
+      console.error('Content preview:', typeof content === 'string' ? content.substring(0, 100) : 'not a string');
+      
+      let errorMessage = 'Error downloading PDF. ';
+      if (error.name === 'InvalidCharacterError') {
+        errorMessage += 'The file contains invalid characters.';
+      } else if (error.name === 'TypeError') {
+        errorMessage += 'The file format is not supported.';
+      } else {
+        errorMessage += 'The file content may be corrupted or invalid.';
+      }
+      
+      window.alert(errorMessage);
     }
   };
 
@@ -334,11 +471,58 @@ export default function AdminDashboard() {
         </select>
         <button onClick={refreshSubmissions} style={styles.button(dark, false)}>🔄 Refresh</button>
         <button onClick={addSampleData} style={styles.button(dark, false)}>📊 Sample Data</button>
+        <button onClick={() => {
+          localStorage.removeItem('submissions');
+          localStorage.removeItem('adminLog');
+          refreshSubmissions();
+        }} style={styles.button(dark, false)}>🗑️ Clear Data</button>
+        <button onClick={() => {
+          const storedSubmissions = JSON.parse(localStorage.getItem('submissions') || '[]');
+          const adminLog = JSON.parse(localStorage.getItem('adminLog') || '[]');
+          console.log('=== DEBUG DATA ===');
+          console.log('All submissions:', storedSubmissions);
+          console.log('All admin logs:', adminLog);
+          
+          // Detailed analysis of each submission
+          storedSubmissions.forEach((sub, index) => {
+            console.log(`--- Submission ${index + 1} ---`);
+            console.log('Filename:', sub.filename);
+            console.log('Stage:', sub.stage);
+            console.log('Has content:', !!sub.content);
+            console.log('Has file:', !!sub.file);
+            console.log('Content type:', typeof sub.content);
+            console.log('Content length:', sub.content ? sub.content.length : 'N/A');
+            console.log('Content preview:', sub.content ? sub.content.substring(0, 100) : 'N/A');
+            if (sub.content) {
+              try {
+                const testBinary = atob(sub.content);
+                console.log('Base64 decode successful, binary length:', testBinary.length);
+              } catch (error) {
+                console.log('Base64 decode failed:', error.message);
+              }
+            }
+          });
+          console.log('=== END DEBUG ===');
+          window.alert(`Found ${storedSubmissions.length} submissions and ${adminLog.length} admin logs. Check console for detailed analysis.`);
+        }} style={styles.button(dark, false)}>🔍 Debug Data</button>
+        <button onClick={() => {
+          // Test download with a known good PDF
+          const testPDFBase64 = 'JVBERi0xLjQKJcOkw7zDtsO8DQoxIDAgb2JqDQo8PA0KL1R5cGUgL0NhdGFsb2cNCi9QYWdlcyAyIDAgUg0KPj4NCmVuZG9iag0KMiAwIG9iag0KPDwNCi9UeXBlIC9QYWdlcw0KL0NvdW50IDENCi9LaWRzIFsgMyAwIFIgXQ0KPj4NCmVuZG9iag0KMyAwIG9iag0KPDwNCi9UeXBlIC9QYWdlDQovUGFyZW50IDIgMCBSDQovUmVzb3VyY2VzIDw8DQovRm9udCA8PA0KL0YxIDQgMCBSDQo+Pg0KPj4NCi9Db250ZW50cyA1IDAgUg0KL01lZGlhQm94IFsgMCAwIDYxMiA3OTIgXQ0KPj4NCmVuZG9iag0KNCAwIG9iag0KPDwNCi9UeXBlIC9Gb250DQovU3VidHlwZSAvVHlwZTENCi9CYXNlRm9udCAvSGVsdmV0aWNhDQo+Pg0KZW5kb2JqDQo1IDAgb2JqDQo8PA0KL0xlbmd0aCAxNA0KPj4NCnN0cmVhbQ0KQlQNCjEwMCA3MDAgVEQKL0YxIDEyIFRqDQpIZWxsbyBXb3JsZCEgVGoNCkVUDQplbmRzdHJlYW0NCmVuZG9iag0KeHJlZg0KMCA2DQowMDAwMDAwMDAwIDY1NTM1IGYNCjAwMDAwMDAwMTAgMDAwMDAgbg0KMDAwMDAwMDA3OSAwMDAwMCBuDQowMDAwMDAwMTczIDAwMDAwIG4NCjAwMDAwMDAzMDEgMDAwMDAgbg0KMDAwMDAwMDM4MCAwMDAwMCBuDQp0cmFpbGVyDQo8PA0KL1NpemUgNg0KL1Jvb3QgMSAwIFINCj4+DQpzdGFydHhyZWYNCjQ5Mg0KJSVFT0Y=';
+          downloadFile('test_download.pdf', testPDFBase64);
+        }} style={styles.button(dark, false)}>🧪 Test Download</button>
         <button onClick={handleLogout} style={styles.button(dark, false)}>Logout</button>
       </div>
       {/* Main Card */}
       <div style={styles.container(dark)}>
         <h1 style={styles.h1(dark)}>Administrator Dashboard</h1>
+        <p style={{ 
+          textAlign: 'center', 
+          color: dark ? '#9ca3af' : '#6b7280', 
+          marginBottom: '1rem',
+          fontSize: '0.9rem'
+        }}>
+          Download buttons are only available for documents that have been approved and published by the final reviewer
+        </p>
         <div style={{ overflowX: 'auto', width: '100%' }}>
           <table style={styles.table(dark)}>
             <thead>
@@ -349,7 +533,7 @@ export default function AdminDashboard() {
                 <th style={styles.th(dark)}>Progress</th>
                 <th style={styles.th(dark)}>Filename</th>
                 <th style={styles.th(dark)}>Notes</th>
-                <th style={styles.th(dark)}>Actions</th>
+                <th style={styles.th(dark)}>Download Published</th>
               </tr>
             </thead>
             <tbody>
@@ -435,22 +619,41 @@ export default function AdminDashboard() {
                       <td style={styles.td(dark)}>{s.filename}</td>
                       <td style={styles.td(dark)}>{s.notes || ''}</td>
                       <td style={styles.td(dark)}>
-                        {s.content ? (
+                        {s.isSubmission && (s.content || s.file) && s.filename && s.stage === 'Stage3' ? (
                           <button
-                            onClick={() => downloadFile(s.filename, s.content)}
+                            onClick={() => {
+                              // Use content if available, otherwise try to convert file to base64
+                              const downloadContent = s.content || s.file;
+                              console.log('Download button clicked:', {
+                                filename: s.filename,
+                                hasContent: !!s.content,
+                                hasFile: !!s.file,
+                                contentType: typeof downloadContent,
+                                isFile: downloadContent instanceof File
+                              });
+                              downloadFile(s.filename, downloadContent);
+                            }}
                             style={{
                               ...styles.button(dark, false),
                               padding: '0.25rem 0.5rem',
                               fontSize: '0.75rem',
                               margin: '0',
                             }}
-                            title="Download PDF"
+                            title="Download Published PDF"
                           >
                             📥 Download
                           </button>
+                        ) : s.isSubmission && (s.content || s.file) && s.filename ? (
+                          <span style={{ 
+                            color: dark ? '#9ca3af' : '#6b7280', 
+                            fontSize: '0.75rem',
+                            fontStyle: 'italic'
+                          }}>
+                            Pending approval
+                          </span>
                         ) : (
                           <span style={{ color: dark ? '#9ca3af' : '#6b7280', fontSize: '0.75rem' }}>
-                            No file
+                            {s.isAdminLog ? 'Log entry' : 'No file'}
                           </span>
                         )}
                       </td>

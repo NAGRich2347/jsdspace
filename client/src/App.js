@@ -85,8 +85,6 @@ function AppRoutes() {
   // Standard Layout Routes - These pages have the header and standard layout
   return (
     <>
-      {/* Header for admin and control pages */}
-      <header className="bg-blue-600 text-white p-4 text-xl">DSpace Workflow</header>
       <div className="p-6">
         <Routes>
           {/* Student workflow routes */}

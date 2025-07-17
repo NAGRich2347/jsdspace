@@ -158,7 +158,7 @@ const styles = {
   sidebarInput: dark => ({
     width: '100%',
     padding: '.85rem 1rem',
-    marginTop: 100, // was 60, now 100 for better alignment
+    marginTop: 10, // Reduced to move search bar up closer to tab navigation
     marginBottom: '1rem',
     border: '1.5px solid #bbaed6',
     borderRadius: 6,
@@ -331,6 +331,43 @@ const getDisplayFilename = (s) => {
 };
 
 /**
+ * Get display filename with line breaks for long names
+ * Returns an object with filename and display text
+ */
+const getDisplayFilenameWithBreaks = (s) => {
+  const filename = getDisplayFilename(s);
+  
+  // Extract the base name (before "_Stage" and ".pdf")
+  const baseNameMatch = filename.match(/^(.+)_Stage\d+\.pdf$/i);
+  const baseName = baseNameMatch ? baseNameMatch[1] : filename.replace(/\.pdf$/i, '');
+  
+  // If base name is longer than 32 characters, add line breaks
+  if (baseName.length > 32) {
+    // Split the base name into chunks of 32 characters
+    const chunks = [];
+    for (let i = 0; i < baseName.length; i += 32) {
+      chunks.push(baseName.slice(i, i + 32));
+    }
+    
+    // Join chunks with line breaks and add the stage suffix
+    const stageSuffix = filename.replace(baseName, '');
+    const displayText = chunks.join('\n') + stageSuffix;
+    
+    return {
+      filename,
+      displayText,
+      hasBreaks: true
+    };
+  }
+  
+  return {
+    filename,
+    displayText: filename,
+    hasBreaks: false
+  };
+};
+
+/**
  * Normalize names by converting spaces to underscores and making lowercase
  * 
  * @param {string} name - The name to normalize
@@ -397,7 +434,7 @@ export default function LibrarianReview() {
   const [sidebarOpen, setSidebarOpen] = useState(false); // Sidebar visibility
   const [search, setSearch] = useState(''); // Search filter for submissions
   const [settingsOpen, setSettingsOpen] = useState(false); // Settings panel visibility
-  const [activeTab, setActiveTab] = useState('review'); // Active tab: 'review', 'returned', or 'sent-back'
+  const [activeTab, setActiveTab] = useState('to-review'); // Active tab: 'to-review', 'returned', 'sent', or 'sent-back'
   
   // Data state management
   const [submissions, setSubmissions] = useState([]); // All submissions from localStorage
@@ -501,16 +538,71 @@ export default function LibrarianReview() {
     return () => window.removeEventListener('scroll', onScroll);
   }, [selected, notes]);
 
+  // Auto-refresh submissions every second when user is online
+  useEffect(() => {
+    const refreshSubmissions = () => {
+      const rawSubmissions = JSON.parse(localStorage.getItem('submissions') || '[]');
+      
+      // Convert base64 content back to File objects for display and interaction
+      const processedSubmissions = rawSubmissions.map(submission => {
+        if (submission.content && !submission.file) {
+          // Convert legacy base64 to File object for better user experience
+          try {
+            let pdfData = submission.content;
+            if (pdfData.startsWith('data:')) {
+              pdfData = pdfData.split(',')[1]; // Remove data URL prefix
+            }
+            pdfData = pdfData.replace(/\s+/g, ''); // Remove whitespace
+            
+            const binary = atob(pdfData); // Decode base64 to binary
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+              bytes[i] = binary.charCodeAt(i); // Convert to byte array
+            }
+            
+            const blob = new Blob([bytes], { type: 'application/pdf' }); // Create blob
+            const file = new File([blob], submission.filename, { type: 'application/pdf' }); // Create File object
+            
+            return {
+              ...submission,
+              file: file, // Add File object for immediate use
+              content: null // Clear base64 content to save memory
+            };
+          } catch (error) {
+            console.error('Error converting base64 to file:', error);
+            return submission; // Return original if conversion fails
+          }
+        }
+        return submission;
+      });
+      
+      setSubmissions(processedSubmissions);
+    };
+
+    // Set up interval for auto-refresh (every 1 second)
+    const intervalId = setInterval(refreshSubmissions, 1000);
+
+    // Cleanup interval on component unmount
+    return () => clearInterval(intervalId);
+  }, []);
+
   // Filtered submissions based on active tab, sorted by submission time (oldest first)
   const filtered = submissions.filter(s => {
     const matchesSearch = !search || s.filename.toLowerCase().includes(search.toLowerCase());
-    if (activeTab === 'review') {
-      return s.stage === 'Stage1' && matchesSearch;
+    const currentUser = atob(sessionStorage.getItem('authUser') || '');
+    
+    if (activeTab === 'to-review') {
+      // Documents that need to be reviewed by the current user
+      return s.stage === 'Stage1' && !s.returnedFromReview && matchesSearch;
     } else if (activeTab === 'returned') {
-      return s.stage === 'Stage2' && matchesSearch;
-    } else if (activeTab === 'sent-back') {
-      // Documents that were sent back to librarian from final review
+      // Documents that have been returned to the current user from someone else
       return s.stage === 'Stage1' && s.returnedFromReview && matchesSearch;
+    } else if (activeTab === 'sent') {
+      // Documents that the current user has sent to someone else
+      return s.stage === 'Stage2' && s.filename.includes(currentUser) && matchesSearch;
+    } else if (activeTab === 'sent-back') {
+      // Documents that the current user has sent back to someone else
+      return s.stage === 'Stage0' && s.sentBackBy === currentUser && matchesSearch;
     }
     return false;
   }).sort((a, b) => a.time - b.time); // Sort by submission time, oldest first
@@ -588,7 +680,8 @@ export default function LibrarianReview() {
       ...selected, 
       stage: 'Stage2', 
       filename: newFilename,
-      time: Date.now() 
+      time: Date.now(),
+      returnedFromReview: false // Remove the returnedFromReview flag
     };
     updatedSubs.push(newSel);
     
@@ -1027,12 +1120,13 @@ export default function LibrarianReview() {
         <div style={{
           display: 'flex',
           flexDirection: 'column',
+          marginTop: '90px', // Align with bottom of settings panel
           marginBottom: '1rem',
           borderBottom: `1px solid ${dark ? '#4a5568' : '#e2e8f0'}`,
         }}>
           <button
             onClick={() => {
-              setActiveTab('review');
+              setActiveTab('to-review');
               setSelected(null);
               setNotes('');
             }}
@@ -1040,19 +1134,19 @@ export default function LibrarianReview() {
               width: '100%',
               padding: '0.75rem 1rem',
               marginBottom: '0.5rem',
-              background: activeTab === 'review' ? (dark ? '#4F2683' : '#a259e6') : 'transparent',
-              color: activeTab === 'review' ? '#fff' : (dark ? '#e0d6f7' : '#201436'),
+              background: activeTab === 'to-review' ? (dark ? '#4F2683' : '#a259e6') : 'transparent',
+              color: activeTab === 'to-review' ? '#fff' : (dark ? '#e0d6f7' : '#201436'),
               border: 'none',
               borderRadius: '6px',
               cursor: 'pointer',
               fontFamily: "'BentonSans Book'",
               fontSize: '0.9rem',
-              fontWeight: activeTab === 'review' ? 600 : 400,
+              fontWeight: activeTab === 'to-review' ? 600 : 400,
               transition: 'all 0.3s ease',
               textAlign: 'left',
             }}
           >
-            📋 Review ({submissions.filter(s => s.stage === 'Stage1' && !s.returnedFromReview).length})
+            📋 To Review ({submissions.filter(s => s.stage === 'Stage1' && !s.returnedFromReview).length})
           </button>
           <button
             onClick={() => {
@@ -1076,7 +1170,31 @@ export default function LibrarianReview() {
               textAlign: 'left',
             }}
           >
-            ↩️ Returned ({submissions.filter(s => s.stage === 'Stage2').length})
+            ↩️ Returned to Me ({submissions.filter(s => s.stage === 'Stage1' && s.returnedFromReview).length})
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('sent');
+              setSelected(null);
+              setNotes('');
+            }}
+            style={{
+              width: '100%',
+              padding: '0.75rem 1rem',
+              marginBottom: '0.5rem',
+              background: activeTab === 'sent' ? (dark ? '#4F2683' : '#a259e6') : 'transparent',
+              color: activeTab === 'sent' ? '#fff' : (dark ? '#e0d6f7' : '#201436'),
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontFamily: "'BentonSans Book'",
+              fontSize: '0.9rem',
+              fontWeight: activeTab === 'sent' ? 600 : 400,
+              transition: 'all 0.3s ease',
+              textAlign: 'left',
+            }}
+          >
+            📤 Sent by Me ({submissions.filter(s => s.stage === 'Stage2' && s.filename.includes(atob(sessionStorage.getItem('authUser') || ''))).length})
           </button>
           <button
             onClick={() => {
@@ -1100,7 +1218,7 @@ export default function LibrarianReview() {
               textAlign: 'left',
             }}
           >
-            🔄 Sent Back ({submissions.filter(s => s.stage === 'Stage1' && s.returnedFromReview).length})
+            🔄 Returned to Student ({submissions.filter(s => s.stage === 'Stage0' && s.sentBackBy === atob(sessionStorage.getItem('authUser') || '')).length})
           </button>
         </div>
         
@@ -1115,21 +1233,31 @@ export default function LibrarianReview() {
           style={styles.sidebarInput(dark)}
         />
         <div>
-          {filtered.map((s, i) => (
-            <div
-              key={i}
-              style={{
-                ...styles.submissionItem(dark, selected?.filename === s.filename),
-                ...(hoverIdx === i ? { background: dark ? '#444' : '#eaeaea' } : {}),
-              }}
-              onMouseEnter={() => setHoverIdx(i)}
-              onMouseLeave={() => setHoverIdx(-1)}
-              onClick={() => selectSubmission(s, i)}
-            >
-              <span>{getDisplayFilename(s)}</span>
-            </div>
-          ))}
+          {filtered.map((s, i) => {
+            const displayInfo = getDisplayFilenameWithBreaks(s);
+            return (
+              <div
+                key={i}
+                style={{
+                  ...styles.submissionItem(dark, selected?.filename === s.filename),
+                  ...(hoverIdx === i ? { background: dark ? '#444' : '#eaeaea' } : {}),
+                }}
+                onMouseEnter={() => setHoverIdx(i)}
+                onMouseLeave={() => setHoverIdx(-1)}
+                onClick={() => selectSubmission(s, i)}
+              >
+                <span style={{ 
+                  whiteSpace: displayInfo.hasBreaks ? 'pre-line' : 'nowrap',
+                  lineHeight: displayInfo.hasBreaks ? '1.2' : 'normal'
+                }}>
+                  {displayInfo.displayText}
+                </span>
+              </div>
+            );
+          })}
         </div>
+        
+
       </div>
       {/* Hamburger */}
       <div
@@ -1144,6 +1272,8 @@ export default function LibrarianReview() {
           <div key={idx} style={styles.hamburgerBar(dark, sidebarOpen, idx)}></div>
         ))}
       </div>
+      
+
       {/* Main content */}
       <div style={{
         ...styles.main(sidebarOpen),
@@ -1185,11 +1315,24 @@ export default function LibrarianReview() {
           // Remove marginTop to avoid double spacing
         }}>
           <h1 style={styles.h1(dark)}>
-            {activeTab === 'review' ? 'Librarian Review' : 
-             activeTab === 'returned' ? 'Returned Documents' : 
-             'Documents Sent Back'}
+            {activeTab === 'to-review' ? 'To Review' : 
+             activeTab === 'returned' ? 'Returned to Me' : 
+             activeTab === 'sent' ? 'Sent by Me' :
+             'Returned to Student'}
           </h1>
-          <div style={{ fontWeight: 500, marginBottom: 12 }}>{selected ? getDisplayFilename(selected) : ''}</div>
+          <div style={{ fontWeight: 500, marginBottom: 12 }}>
+            {selected ? (() => {
+              const displayInfo = getDisplayFilenameWithBreaks(selected);
+              return (
+                <span style={{ 
+                  whiteSpace: displayInfo.hasBreaks ? 'pre-line' : 'nowrap',
+                  lineHeight: displayInfo.hasBreaks ? '1.2' : 'normal'
+                }}>
+                  {displayInfo.displayText}
+                </span>
+              );
+            })() : ''}
+          </div>
           <div style={{
             display: 'flex',
             gap: HORIZONTAL_GAP,
@@ -1247,16 +1390,27 @@ export default function LibrarianReview() {
                       marginBottom: '1rem',
                       fontSize: '1.5rem'
                     }}>
-                      {selected.filename}
+                      {selected ? (() => {
+                        const displayInfo = getDisplayFilenameWithBreaks(selected);
+                        return (
+                          <span style={{ 
+                            whiteSpace: displayInfo.hasBreaks ? 'pre-line' : 'nowrap',
+                            lineHeight: displayInfo.hasBreaks ? '1.3' : 'normal'
+                          }}>
+                            {displayInfo.displayText}
+                          </span>
+                        );
+                      })() : selected.filename}
                     </h3>
                     <p style={{ 
                       color: dark ? '#bbaed6' : '#666', 
                       marginBottom: '2rem',
                       fontSize: '1rem'
                     }}>
-                      {activeTab === 'review' ? 'Ready for download and modification' : 
-                       activeTab === 'returned' ? 'Returned document ready for review' :
-                       'Document sent back from final review'}
+                      {activeTab === 'to-review' ? 'Ready for download and modification' : 
+                       activeTab === 'returned' ? 'Returned document ready for download and review' :
+                       activeTab === 'sent' ? 'Document you sent to final review - available for download' :
+                       'Document you returned to student - available for download'}
                     </p>
                     <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'center' }}>
                       <button
@@ -1319,17 +1473,19 @@ export default function LibrarianReview() {
                       marginBottom: '1rem',
                       fontSize: '1.5rem'
                     }}>
-                      {activeTab === 'review' ? 'Select a submission' : 
+                      {activeTab === 'to-review' ? 'Select a submission' : 
                        activeTab === 'returned' ? 'Select a returned document' :
-                       'Select a sent-back document'}
+                       activeTab === 'sent' ? 'Select a sent document' :
+                       'Select a returned document'}
                     </h3>
                     <p style={{ 
                       color: dark ? '#bbaed6' : '#666', 
                       fontSize: '1rem'
                     }}>
-                      {activeTab === 'review' ? 'Choose a document from the sidebar to download and modify' : 
+                      {activeTab === 'to-review' ? 'Choose a document from the sidebar to download and modify' : 
                        activeTab === 'returned' ? 'Choose a returned document from the sidebar to review' :
-                       'Choose a document sent back from final review'}
+                       activeTab === 'sent' ? 'Choose a document you sent to final review' :
+                       'Choose a document you returned to a student'}
                     </p>
                   </div>
                 )}
@@ -1411,9 +1567,10 @@ export default function LibrarianReview() {
                 fontWeight: 600,
                 color: dark ? '#e2e8f0' : '#2d3748',
               }}>
-                {activeTab === 'review' ? 'Review Controls' : 
+                {activeTab === 'to-review' ? 'Review Controls' : 
                  activeTab === 'returned' ? 'Returned Document Controls' :
-                 'Sent Back Document Controls'}
+                 activeTab === 'sent' ? 'Sent Documents' :
+                 'Returned to Student Documents'}
               </h3>
               
               <div>
@@ -1470,7 +1627,7 @@ export default function LibrarianReview() {
               </div>
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 'auto' }}>
-                {activeTab === 'review' ? (
+                {activeTab === 'to-review' && (
                   <>
                     <button
                       onClick={sendToReviewer}
@@ -1478,9 +1635,11 @@ export default function LibrarianReview() {
                       style={{
                         ...styles.button(dark),
                         width: '100%',
+                        backgroundColor: '#059669',
+                        border: '2px solid #059669',
                       }}
                     >
-                      Submit Review
+                      📤 Send to Review
                     </button>
                     
                     <button
@@ -1507,7 +1666,9 @@ export default function LibrarianReview() {
                       Send Back to Student
                     </button>
                   </>
-                ) : activeTab === 'returned' ? (
+                )}
+                
+                {activeTab === 'returned' && (
                   <>
                     <button
                       onClick={sendReturnedToFinalReview}
@@ -1520,7 +1681,7 @@ export default function LibrarianReview() {
                       }}
                       title="Send this returned document back to final review"
                     >
-                      📤 Send to Final Review
+                      📤 Send to Review
                     </button>
                     
                     <button
@@ -1547,46 +1708,36 @@ export default function LibrarianReview() {
                       Send Back to Student
                     </button>
                   </>
-                ) : (
-                  <>
-                    <button
-                      onClick={sendToReviewer}
-                      disabled={!selected}
-                      style={{
-                        ...styles.button(dark),
-                        width: '100%',
-                        backgroundColor: '#059669',
-                        border: '2px solid #059669',
-                      }}
-                      title="Send this sent-back document to final review"
-                    >
-                      📤 Send to Final Review
-                    </button>
-                    
-                    <button
-                      onClick={sendBackToStudent}
-                      disabled={!selected}
-                      title="⚠️ Send this submission back to the student for corrections"
-                      style={{
-                        ...styles.button(dark),
-                        width: '100%',
-                        backgroundColor: '#dc2626',
-                        border: '2px solid #dc2626',
-                        position: 'relative',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.target.style.backgroundColor = '#b91c1c';
-                        e.target.style.borderColor = '#b91c1c';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.target.style.backgroundColor = '#dc2626';
-                        e.target.style.borderColor = '#dc2626';
-                      }}
-                    >
-                      <span style={{ marginRight: 8 }}>⚠️</span>
-                      Send Back to Student
-                    </button>
-                  </>
+                )}
+                
+                {activeTab === 'sent' && (
+                  <div style={{ 
+                    color: dark ? '#bbaed6' : '#666', 
+                    fontSize: '0.9rem', 
+                    textAlign: 'center',
+                    padding: '12px',
+                    fontStyle: 'italic',
+                    background: dark ? 'rgba(79, 38, 131, 0.1)' : 'rgba(79, 38, 131, 0.05)',
+                    borderRadius: '8px',
+                    border: `1px solid ${dark ? '#4F2683' : '#bbaed6'}`
+                  }}>
+                    Documents you sent to final review
+                  </div>
+                )}
+                
+                {activeTab === 'sent-back' && (
+                  <div style={{ 
+                    color: dark ? '#bbaed6' : '#666', 
+                    fontSize: '0.9rem', 
+                    textAlign: 'center',
+                    padding: '12px',
+                    fontStyle: 'italic',
+                    background: dark ? 'rgba(79, 38, 131, 0.1)' : 'rgba(79, 38, 131, 0.05)',
+                    borderRadius: '8px',
+                    border: `1px solid ${dark ? '#4F2683' : '#bbaed6'}`
+                  }}>
+                    Documents you returned to students
+                  </div>
                 )}
                 <button
                   onClick={() => {
