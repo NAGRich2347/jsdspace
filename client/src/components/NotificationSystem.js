@@ -2,6 +2,8 @@
 // React component for the notification system of the workflow.
 // Provides real-time notifications for document status changes, returns, and approvals.
 // Supports swipe-to-dismiss gestures and role-based notification filtering.
+// Enhanced with Apple-style notification badges and improved UI.
+// Real-time updates with dynamic refresh functionality.
 
 import React, { useState, useEffect, useRef } from 'react';
 
@@ -13,31 +15,40 @@ import React, { useState, useEffect, useRef } from 'react';
  * 
  * Features:
  * - Role-based notification filtering
- * - Real-time updates (checks every 2 seconds)
+ * - Real-time updates (checks every 1 second for immediate responsiveness)
  * - Auto-dismiss after 15 seconds
  * - Swipe-to-dismiss gestures
  * - Click to open documents
  * - Dark/light theme support
  * - Smooth animations and transitions
+ * - Apple-style notification badges
+ * - Dynamic real-time refresh of notification counts
+ * - Live workflow status updates
  * 
  * @param {boolean} dark - Dark/light theme state
  * @param {function} onOpenDocument - Callback function when document is clicked
+ * @param {function} onNotificationUpdate - Callback function when notifications change
  */
-const NotificationSystem = ({ dark, onOpenDocument }) => {
+const NotificationSystem = ({ dark, onOpenDocument, onNotificationUpdate }) => {
   // State management for notifications and UI interactions
   const [notifications, setNotifications] = useState([]); // Current notifications to display
   const [swipeStates, setSwipeStates] = useState({}); // Touch/swipe state for each notification
+  const [notificationCounts, setNotificationCounts] = useState({}); // Real-time counts for different categories
   const notificationRefs = useRef({}); // Refs to notification DOM elements for animations
+  const lastUpdateRef = useRef(0); // Track last update time to prevent unnecessary re-renders
 
-  // Check for new notifications every 2 seconds
+  // Real-time notification monitoring - check every 1 second for immediate responsiveness
   useEffect(() => {
     const checkForNotifications = () => {
+      const currentTime = Date.now();
       const storedNotifications = JSON.parse(localStorage.getItem('userNotifications') || '[]'); // Get all notifications
       const currentUser = atob(sessionStorage.getItem('authUser') || ''); // Get current user
       const currentRole = atob(sessionStorage.getItem('authRole') || ''); // Get current role
+      
       // Get shown notification IDs for this user from sessionStorage
       const shownKey = `shownNotifications_${currentUser}`;
       const shownIds = JSON.parse(sessionStorage.getItem(shownKey) || '[]');
+      
       // Filter notifications based on user role and target stage
       const userNotifications = storedNotifications.filter(notification => {
         // Students see notifications for documents returned to them (Stage0)
@@ -54,21 +65,91 @@ const NotificationSystem = ({ dark, onOpenDocument }) => {
         }
         return false;
       });
+      
       // Only show notifications that have not been shown in this session
       const newNotifications = userNotifications.filter(notification =>
         !shownIds.includes(notification.id) && !notifications.find(n => n.id === notification.id)
       );
-      if (newNotifications.length > 0) {
-        setNotifications(prev => [...prev, ...newNotifications]); // Add new notifications to state
-        // Mark these notifications as shown in sessionStorage
-        const updatedShown = [...shownIds, ...newNotifications.map(n => n.id)];
-        sessionStorage.setItem(shownKey, JSON.stringify(updatedShown));
+      
+      // Update notification counts for real-time badge updates
+      const counts = {
+        total: userNotifications.length,
+        new: newNotifications.length,
+        unread: userNotifications.filter(n => !shownIds.includes(n.id)).length
+      };
+      
+      // Only update if there are actual changes to prevent unnecessary re-renders
+      if (newNotifications.length > 0 || JSON.stringify(counts) !== JSON.stringify(notificationCounts)) {
+        setNotificationCounts(counts);
+        
+        if (newNotifications.length > 0) {
+          setNotifications(prev => [...prev, ...newNotifications]); // Add new notifications to state
+          // Mark these notifications as shown in sessionStorage
+          const updatedShown = [...shownIds, ...newNotifications.map(n => n.id)];
+          sessionStorage.setItem(shownKey, JSON.stringify(updatedShown));
+          
+          // Notify parent component of notification update
+          if (onNotificationUpdate) {
+            onNotificationUpdate(counts);
+          }
+        }
+        
+        lastUpdateRef.current = currentTime;
       }
     };
+    
     checkForNotifications(); // Run immediately on mount
-    const interval = setInterval(checkForNotifications, 2000); // Check every 2 seconds
+    const interval = setInterval(checkForNotifications, 1000); // Check every 1 second for real-time updates
+    
     return () => clearInterval(interval); // Cleanup interval on unmount
-  }, [notifications]);
+  }, [notifications, notificationCounts, onNotificationUpdate]);
+
+  // Monitor workflow changes in real-time
+  useEffect(() => {
+    const checkWorkflowChanges = () => {
+      const submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
+      const currentUser = atob(sessionStorage.getItem('authUser') || '');
+      const currentRole = atob(sessionStorage.getItem('authRole') || '');
+      
+      // Calculate real-time counts based on current workflow state
+      let workflowCounts = {};
+      
+      if (currentRole === 'librarian') {
+        workflowCounts = {
+          toReview: submissions.filter(s => s.stage === 'Stage1' && !s.returnedFromReview).length,
+          returned: submissions.filter(s => s.stage === 'Stage1' && s.returnedFromReview).length,
+          sent: submissions.filter(s => s.stage === 'Stage2' && s.filename.includes(currentUser)).length,
+          sentBack: submissions.filter(s => s.stage === 'Stage0' && s.sentBackBy === currentUser).length
+        };
+      } else if (currentRole === 'reviewer') {
+        workflowCounts = {
+          toReview: submissions.filter(s => s.stage === 'Stage2' && !s.returnedFromReview).length,
+          returned: submissions.filter(s => s.stage === 'Stage2' && s.returnedFromReview).length,
+          sent: submissions.filter(s => s.stage === 'Stage3' && s.filename.includes(currentUser)).length,
+          sentBack: submissions.filter(s => s.stage === 'Stage1' && s.sentBackBy === currentUser).length
+        };
+      }
+      
+      // Update notification counts with workflow data
+      setNotificationCounts(prev => ({
+        ...prev,
+        workflow: workflowCounts
+      }));
+      
+      // Notify parent component of workflow changes
+      if (onNotificationUpdate) {
+        onNotificationUpdate({
+          ...notificationCounts,
+          workflow: workflowCounts
+        });
+      }
+    };
+    
+    checkWorkflowChanges(); // Run immediately
+    const workflowInterval = setInterval(checkWorkflowChanges, 2000); // Check workflow every 2 seconds
+    
+    return () => clearInterval(workflowInterval);
+  }, [onNotificationUpdate, notificationCounts]);
 
   // Auto-remove notifications after 15 seconds
   useEffect(() => {
@@ -93,6 +174,13 @@ const NotificationSystem = ({ dark, onOpenDocument }) => {
       delete newState[id]; // Clean up swipe state
       return newState;
     });
+    
+    // Update counts after removal
+    setNotificationCounts(prev => ({
+      ...prev,
+      total: Math.max(0, prev.total - 1),
+      unread: Math.max(0, prev.unread - 1)
+    }));
   };
 
   /**
@@ -179,11 +267,73 @@ const NotificationSystem = ({ dark, onOpenDocument }) => {
   };
 
   /**
+   * Test function to add a sample notification (for development/testing)
+   * This can be called from the browser console to test the notification system
+   */
+  const addTestNotification = () => {
+    const testNotification = {
+      id: `test-${Date.now()}`,
+      filename: 'Test_Document.pdf',
+      targetUser: atob(sessionStorage.getItem('authUser') || ''),
+      targetStage: 'Stage1',
+      timestamp: Date.now()
+    };
+    
+    const currentNotifications = JSON.parse(localStorage.getItem('userNotifications') || '[]');
+    currentNotifications.push(testNotification);
+    localStorage.setItem('userNotifications', JSON.stringify(currentNotifications));
+    
+    console.log('Test notification added! Check the notification system.');
+  };
+
+  /**
+   * Test function to simulate workflow changes (for development/testing)
+   * This can be called from the browser console to test real-time updates
+   */
+  const simulateWorkflowChange = () => {
+    const currentUser = atob(sessionStorage.getItem('authUser') || '');
+    const currentRole = atob(sessionStorage.getItem('authRole') || '');
+    
+    // Get current submissions
+    const submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
+    
+    // Create a test submission
+    const testSubmission = {
+      filename: `Test_${currentUser}_${Date.now()}.pdf`,
+      stage: currentRole === 'librarian' ? 'Stage1' : 'Stage2',
+      time: Date.now(),
+      user: currentUser,
+      content: 'test-content',
+      returnedFromReview: false
+    };
+    
+    // Add to submissions
+    submissions.push(testSubmission);
+    localStorage.setItem('submissions', JSON.stringify(submissions));
+    
+    console.log('Workflow change simulated! Check the notification badges for real-time updates.');
+    console.log('Current workflow counts:', notificationCounts.workflow);
+  };
+
+  // Expose test functions globally for development
+  if (typeof window !== 'undefined') {
+    window.addTestNotification = addTestNotification;
+    window.simulateWorkflowChange = simulateWorkflowChange;
+    window.notificationCounts = notificationCounts; // Expose counts for debugging
+    window.getNotificationStats = () => ({
+      counts: notificationCounts,
+      notifications: notifications.length,
+      lastUpdate: lastUpdateRef.current
+    });
+  }
+
+  /**
    * NotificationSystem Component - Comprehensive Styling Object
    * 
    * This object contains all the styling for the notification system.
    * Each style function takes theme parameters (dark/light mode) and returns
    * appropriate CSS properties for responsive, accessible design.
+   * Enhanced with Apple-style notification design patterns.
    */
   const styles = {
     // Container for all notifications with fixed positioning
@@ -198,60 +348,64 @@ const NotificationSystem = ({ dark, onOpenDocument }) => {
       gap: 10, // Space between notifications
       pointerEvents: 'none', // Allow clicks to pass through container
     },
-    // Individual notification styling with theme support
+    // Individual notification styling with Apple-inspired design
     notification: (dark, isVisible) => ({
-      background: dark ? 'rgba(36, 18, 54, 0.95)' : 'rgba(255, 255, 255, 0.95)', // Semi-transparent background
-      border: `2px solid ${dark ? '#4F2683' : '#bbaed6'}`, // Theme-based border
-      borderRadius: 12, // Rounded corners
-      padding: '16px 20px', // Internal spacing
-      minWidth: 300, // Minimum width
-      maxWidth: 400, // Maximum width
+      background: dark ? 'rgba(36, 18, 54, 0.98)' : 'rgba(255, 255, 255, 0.98)', // More opaque background
+      border: `1px solid ${dark ? '#4F2683' : '#e1e5e9'}`, // Subtle border
+      borderRadius: 16, // More rounded corners like Apple
+      padding: '20px 24px', // Increased padding
+      minWidth: 320, // Slightly wider
+      maxWidth: 420, // Maximum width
       boxShadow: dark 
-        ? '0 8px 32px rgba(79, 38, 131, 0.3)' 
-        : '0 8px 32px rgba(0, 0, 0, 0.15)', // Theme-based shadow
+        ? '0 12px 40px rgba(79, 38, 131, 0.25), 0 4px 16px rgba(0, 0, 0, 0.2)' 
+        : '0 12px 40px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08)', // Enhanced shadow
       color: dark ? '#e0d6f7' : '#201436', // Theme-based text color
-      fontFamily: "'BentonSans Book', sans-serif",
+      fontFamily: "'BentonSans Book', -apple-system, BlinkMacSystemFont, sans-serif",
       fontSize: '14px',
-      lineHeight: 1.4,
+      lineHeight: 1.5,
       cursor: 'pointer', // Indicate clickable
       pointerEvents: 'auto', // Enable clicks on notification
       transform: isVisible ? 'translateY(0)' : 'translateY(-100px)', // Slide in/out animation
       opacity: isVisible ? 1 : 0, // Fade in/out
-      transition: 'all 0.3s ease', // Smooth transitions
-      backdropFilter: 'blur(10px)', // Background blur effect
-      borderLeft: `4px solid #dc2626`, // Red accent border for urgency
+      transition: 'all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94)', // Smooth Apple-style transitions
+      backdropFilter: 'blur(20px)', // Enhanced background blur effect
+      borderLeft: `4px solid #ff3b30`, // Apple-style red accent border
+      position: 'relative', // For badge positioning
     }),
     // Header section with title and close button
     header: {
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: 8,
+      marginBottom: 12, // Increased spacing
     },
-    // Notification title styling
+    // Notification title styling with Apple typography
     title: (dark) => ({
       fontWeight: 600,
       fontSize: '16px',
       color: dark ? '#e0d6f7' : '#201436',
       margin: 0,
+      letterSpacing: '-0.2px', // Apple-style letter spacing
     }),
-    // Close button styling
+    // Close button styling with Apple design
     closeButton: (dark) => ({
       background: 'none',
       border: 'none',
       color: dark ? '#e0d6f7' : '#201436',
-      fontSize: '18px',
+      fontSize: '20px',
       cursor: 'pointer',
-      padding: 0,
-      width: 24,
-      height: 24,
+      padding: 4,
+      width: 28,
+      height: 28,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       borderRadius: '50%',
-      transition: 'background-color 0.2s',
+      transition: 'all 0.2s ease',
+      opacity: 0.7,
       '&:hover': {
-        backgroundColor: dark ? 'rgba(224, 214, 247, 0.1)' : 'rgba(32, 20, 54, 0.1)',
+        backgroundColor: dark ? 'rgba(224, 214, 247, 0.15)' : 'rgba(32, 20, 54, 0.1)',
+        opacity: 1,
       },
     }),
     // Notification message styling
@@ -259,19 +413,55 @@ const NotificationSystem = ({ dark, onOpenDocument }) => {
       margin: 0,
       color: dark ? '#e0d6f7' : '#201436',
       fontSize: '14px',
+      lineHeight: 1.5,
+      opacity: 0.9,
     }),
     // Swipe hint text styling
     swipeHint: (dark) => ({
       fontSize: '12px',
-      color: dark ? 'rgba(224, 214, 247, 0.7)' : 'rgba(32, 20, 54, 0.7)',
-      marginTop: 8,
+      color: dark ? 'rgba(224, 214, 247, 0.6)' : 'rgba(32, 20, 54, 0.6)',
+      marginTop: 12,
       textAlign: 'center',
       fontStyle: 'italic',
+      opacity: 0.8,
     }),
+    // Apple-style notification badge
+    notificationBadge: {
+      position: 'absolute',
+      top: -8,
+      right: -8,
+      background: '#ff3b30', // Apple red
+      color: '#ffffff',
+      borderRadius: '50%',
+      minWidth: '20px',
+      height: '20px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: '12px',
+      fontWeight: 600,
+      border: '2px solid rgba(255, 255, 255, 0.95)',
+      boxShadow: '0 2px 8px rgba(255, 59, 48, 0.3)',
+      zIndex: 1,
+      animation: 'badgePulse 2s ease-in-out infinite',
+    },
+    // Badge pulse animation
+    '@keyframes badgePulse': {
+      '0%, 100%': { transform: 'scale(1)' },
+      '50%': { transform: 'scale(1.1)' },
+    },
   };
 
   return (
     <div style={styles.notificationContainer}>
+      <style>
+        {`
+          @keyframes badgePulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+          }
+        `}
+      </style>
       {notifications.map((notification, index) => (
         <div
           key={notification.id}
@@ -282,6 +472,11 @@ const NotificationSystem = ({ dark, onOpenDocument }) => {
           onTouchMove={(e) => handleTouchMove(notification.id, e)}
           onTouchEnd={(e) => handleTouchEnd(notification.id, e)}
         >
+          {/* Apple-style notification badge */}
+          <div style={styles.notificationBadge}>
+            {Math.min(notifications.length, 999)}
+          </div>
+          
           <div style={styles.header}>
             <h4 style={styles.title(dark)}>📄 Document Returned</h4>
             <button
@@ -291,10 +486,12 @@ const NotificationSystem = ({ dark, onOpenDocument }) => {
                 removeNotification(notification.id);
               }}
               onMouseEnter={(e) => {
-                e.target.style.backgroundColor = dark ? 'rgba(224, 214, 247, 0.1)' : 'rgba(32, 20, 54, 0.1)';
+                e.target.style.backgroundColor = dark ? 'rgba(224, 214, 247, 0.15)' : 'rgba(32, 20, 54, 0.1)';
+                e.target.style.opacity = '1';
               }}
               onMouseLeave={(e) => {
                 e.target.style.backgroundColor = 'transparent';
+                e.target.style.opacity = '0.7';
               }}
             >
               ×
@@ -309,12 +506,13 @@ const NotificationSystem = ({ dark, onOpenDocument }) => {
           <p style={{
             fontSize: '11px',
             color: dark ? 'rgba(224, 214, 247, 0.5)' : 'rgba(32, 20, 54, 0.5)',
-            marginTop: 2,
+            marginTop: 4,
             marginBottom: 0,
             textAlign: 'center',
             fontStyle: 'italic',
+            opacity: 0.7,
           }}>
-            (wait or click to dismiss)
+            (auto-dismisses in 15s)
           </p>
         </div>
       ))}

@@ -311,6 +311,48 @@ export default function AdminDashboard() {
     }
   };
 
+  const previewFile = (filename, content) => {
+    if (!filename || !content) {
+      console.error('Missing file information:', { filename, content: !!content });
+      window.alert('Missing file information. Cannot preview.');
+      return;
+    }
+    
+    try {
+      // If it's a File object, use it directly
+      if (content instanceof File) {
+        const url = URL.createObjectURL(content);
+        window.open(url, '_blank');
+        return;
+      }
+      
+      // Handle base64 content
+      if (typeof content !== 'string') {
+        window.alert('Invalid content type. Expected string or File but got: ' + typeof content);
+        return;
+      }
+      
+      let pdfData = content;
+      
+      // If it's a data URL, extract the base64 part
+      if (pdfData.startsWith('data:')) {
+        pdfData = pdfData.split(',')[1];
+      }
+      
+      // Clean the base64 string
+      pdfData = pdfData.replace(/\s+/g, '');
+      
+      // Create data URL for preview
+      const dataUrl = `data:application/pdf;base64,${pdfData}`;
+      
+      // Open in new tab
+      window.open(dataUrl, '_blank');
+    } catch (error) {
+      console.error('Preview error:', error);
+      window.alert('Error previewing PDF. Please try again.');
+    }
+  };
+
   /**
    * AdminDashboard Component - Comprehensive Styling Object
    * 
@@ -533,7 +575,7 @@ export default function AdminDashboard() {
                 <th style={styles.th(dark)}>Progress</th>
                 <th style={styles.th(dark)}>Filename</th>
                 <th style={styles.th(dark)}>Notes</th>
-                <th style={styles.th(dark)}>Download Published</th>
+                <th style={styles.th(dark)}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -620,29 +662,39 @@ export default function AdminDashboard() {
                       <td style={styles.td(dark)}>{s.notes || ''}</td>
                       <td style={styles.td(dark)}>
                         {s.isSubmission && (s.content || s.file) && s.filename && s.stage === 'Stage3' ? (
-                          <button
-                            onClick={() => {
-                              // Use content if available, otherwise try to convert file to base64
-                              const downloadContent = s.content || s.file;
-                              console.log('Download button clicked:', {
-                                filename: s.filename,
-                                hasContent: !!s.content,
-                                hasFile: !!s.file,
-                                contentType: typeof downloadContent,
-                                isFile: downloadContent instanceof File
-                              });
-                              downloadFile(s.filename, downloadContent);
-                            }}
-                            style={{
-                              ...styles.button(dark, false),
-                              padding: '0.25rem 0.5rem',
-                              fontSize: '0.75rem',
-                              margin: '0',
-                            }}
-                            title="Download Published PDF"
-                          >
-                            📥 Download
-                          </button>
+                          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                            <button
+                              onClick={() => {
+                                const downloadContent = s.content || s.file;
+                                downloadFile(s.filename, downloadContent);
+                              }}
+                              style={{
+                                ...styles.button(dark, false),
+                                padding: '0.25rem 0.5rem',
+                                fontSize: '0.75rem',
+                                margin: '0',
+                              }}
+                              title="Download Published PDF"
+                            >
+                              📥 Download
+                            </button>
+                            <button
+                              onClick={() => {
+                                const previewContent = s.content || s.file;
+                                previewFile(s.filename, previewContent);
+                              }}
+                              style={{
+                                ...styles.button(dark, false),
+                                padding: '0.25rem 0.5rem',
+                                fontSize: '0.75rem',
+                                margin: '0',
+                                background: '#007bff',
+                              }}
+                              title="Preview Published PDF"
+                            >
+                              👁️ Preview
+                            </button>
+                          </div>
                         ) : s.isSubmission && (s.content || s.file) && s.filename ? (
                           <span style={{ 
                             color: dark ? '#9ca3af' : '#6b7280', 

@@ -345,28 +345,22 @@ const normalizeName = (name) => {
 };
 
 /**
- * Automatically rename file based on stage progression and current user
+ * Automatically rename file based on stage progression
  * Extracts the original student name and updates the stage number
- * For reviewer uploads, includes reviewer name in the filename
+ * Clean naming convention: firstname_lastname_StageX.pdf
  * 
- * @param {string} originalFilename - The original filename (e.g., "john_doe_librarian1_Stage2.pdf")
+ * @param {string} originalFilename - The original filename (e.g., "john_doe_Stage1.pdf")
  * @param {string} newStage - The new stage (e.g., "Stage2", "Stage3")
- * @param {string} currentUser - The current user (librarian/reviewer) name
- * @param {boolean} includeUser - Whether to include the current user's name in the filename
- * @returns {string} - The renamed filename (e.g., "john_doe_librarian1_reviewer1_Stage3.pdf")
+ * @param {string} currentUser - The current user (librarian/reviewer) name (not used in filename)
+ * @param {boolean} includeUser - Whether to include the current user's name in the filename (ignored)
+ * @returns {string} - The renamed filename (e.g., "john_doe_Stage2.pdf")
  */
 const autoRenameFile = (originalFilename, newStage, currentUser = null, includeUser = false) => {
   // Extract the base name (everything before the last underscore and stage number)
   const match = originalFilename.match(/^(.+)_Stage\d+\.pdf$/i);
   if (match) {
-    const baseName = match[1]; // e.g., "john_doe" or "john_doe_librarian1"
-    
-    if (includeUser && currentUser) {
-      const normalizedUser = normalizeName(currentUser);
-      return `${baseName}_${normalizedUser}_${newStage}.pdf`;
-    } else {
-      return `${baseName}_${newStage}.pdf`;
-    }
+    const baseName = match[1]; // e.g., "john_doe"
+    return `${baseName}_${newStage}.pdf`;
   }
   // Fallback: if we can't parse the original name, just append the stage
   return originalFilename.replace(/\.pdf$/i, `_${newStage}.pdf`);
@@ -393,6 +387,9 @@ export default function FinalApproval() {
   const [dragOver, setDragOver] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('to-review'); // Active tab: 'to-review', 'returned', 'sent', or 'sent-back'
+  
+  // Real-time notification state
+  const [notificationCounts, setNotificationCounts] = useState({});
 
   // --- Constants for layout ---
   const REVIEW_CONTROLS_WIDTH = 350;
@@ -568,8 +565,8 @@ export default function FinalApproval() {
     // Get current reviewer name
     const currentUser = atob(sessionStorage.getItem('authUser') || '');
     
-    // Automatically rename the file to Stage3 (approved/published) with reviewer name
-    const newFilename = autoRenameFile(selected.filename, 'Stage3', currentUser, true);
+    // Automatically rename the file to Stage3 (approved/published)
+    const newFilename = autoRenameFile(selected.filename, 'Stage3', currentUser, false);
     const approvedSubmission = { 
       ...selected, 
       stage: 'Stage3', 
@@ -606,8 +603,8 @@ export default function FinalApproval() {
     // Get current reviewer name
     const currentUser = atob(sessionStorage.getItem('authUser') || '');
     
-    // Automatically rename the file back to Stage1 with reviewer name and returnedFromReview flag
-    const newFilename = autoRenameFile(selected.filename, 'Stage1', currentUser, true);
+    // Automatically rename the file back to Stage1 with returnedFromReview flag
+    const newFilename = autoRenameFile(selected.filename, 'Stage1', currentUser, false);
     const newSel = { 
       ...selected, 
       stage: 'Stage1', 
@@ -649,6 +646,23 @@ export default function FinalApproval() {
     setNotes('');
     setFileInputKey(Date.now()); // Reset file input
     setSuccessMsg('Sent back to Librarian!');
+    setTimeout(() => setSuccessMsg(''), 5000);
+  };
+
+  // Clear submission history for the current user
+  const clearHistory = () => {
+    if (!window.confirm('Are you sure you want to clear your submission history? This action cannot be undone.')) {
+      return;
+    }
+    
+    const currentUser = atob(sessionStorage.getItem('authUser') || '');
+    const updatedSubs = submissions.filter(s => !(s.stage === 'Stage3' && s.filename.includes(currentUser)));
+    
+    localStorage.setItem('submissions', JSON.stringify(updatedSubs));
+    setSubmissions(updatedSubs);
+    setSelected(null);
+    setNotes('');
+    setSuccessMsg('Submission history cleared!');
     setTimeout(() => setSuccessMsg(''), 5000);
   };
 
@@ -838,8 +852,8 @@ export default function FinalApproval() {
     // No need to validate the dropped filename against naming conventions
     const droppedFilename = pdfFile.name;
 
-    // Automatically rename the dropped file to include reviewer name and match the current stage
-    const newFilename = autoRenameFile(selected.filename, selected.stage, currentUser, true);
+    // Automatically rename the dropped file to match the current stage
+    const newFilename = autoRenameFile(selected.filename, selected.stage, currentUser, false);
     const renamedFile = new File([pdfFile], newFilename, { type: 'application/pdf' });
     
     // Update the submission with the new file
@@ -847,7 +861,7 @@ export default function FinalApproval() {
       if (s.filename === selected.filename) {
         return {
           ...s,
-          filename: newFilename, // Update filename to include reviewer name
+          filename: newFilename, // Update filename to match stage
           file: renamedFile, // Store the renamed File object
           content: null, // Clear legacy base64 content
           time: Date.now()
@@ -902,7 +916,17 @@ export default function FinalApproval() {
       <NotificationSystem 
         dark={dark} 
         onOpenDocument={handleOpenDocumentFromNotification}
+        onNotificationUpdate={setNotificationCounts}
       />
+      {/* CSS animations for real-time notification badges */}
+      <style>
+        {`
+          @keyframes badgePulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+          }
+        `}
+      </style>
       {/* --- Global Styles --- */}
       <style>{`
         html, body, #root {
@@ -997,7 +1021,7 @@ export default function FinalApproval() {
               marginBottom: '0.5rem',
               background: activeTab === 'to-review' ? (dark ? '#4F2683' : '#a259e6') : 'transparent',
               color: activeTab === 'to-review' ? '#fff' : (dark ? '#e0d6f7' : '#201436'),
-              border: 'none',
+              border: '1.5px solid #bbaed6',
               borderRadius: '6px',
               cursor: 'pointer',
               fontFamily: "'BentonSans Book'",
@@ -1005,9 +1029,40 @@ export default function FinalApproval() {
               fontWeight: activeTab === 'to-review' ? 600 : 400,
               transition: 'all 0.3s ease',
               textAlign: 'left',
+              position: 'relative',
             }}
           >
-            📋 To Review ({submissions.filter(s => s.stage === 'Stage2' && !s.returnedFromReview).length})
+            📋 To Review ({notificationCounts.workflow?.toReview || submissions.filter(s => s.stage === 'Stage2' && !s.returnedFromReview).length})
+            {/* Notification badge */}
+            {(() => {
+              const count = notificationCounts.workflow?.toReview || submissions.filter(s => s.stage === 'Stage2' && !s.returnedFromReview).length;
+              if (count > 0) {
+                return (
+                  <div style={{
+                    position: 'absolute',
+                    top: -6,
+                    right: -6,
+                    background: '#ff3b30',
+                    color: '#ffffff',
+                    borderRadius: '50%',
+                    minWidth: '18px',
+                    height: '18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    border: '2px solid rgba(255, 255, 255, 0.95)',
+                    boxShadow: '0 2px 6px rgba(255, 59, 48, 0.3)',
+                    zIndex: 1,
+                    animation: count > 0 ? 'badgePulse 2s ease-in-out infinite' : 'none',
+                  }}>
+                    {Math.min(count, 999)}
+                  </div>
+                );
+              }
+              return null;
+            })()}
           </button>
           <button
             onClick={() => {
@@ -1021,7 +1076,7 @@ export default function FinalApproval() {
               marginBottom: '0.5rem',
               background: activeTab === 'returned' ? (dark ? '#4F2683' : '#a259e6') : 'transparent',
               color: activeTab === 'returned' ? '#fff' : (dark ? '#e0d6f7' : '#201436'),
-              border: 'none',
+              border: '1.5px solid #bbaed6',
               borderRadius: '6px',
               cursor: 'pointer',
               fontFamily: "'BentonSans Book'",
@@ -1029,9 +1084,40 @@ export default function FinalApproval() {
               fontWeight: activeTab === 'returned' ? 600 : 400,
               transition: 'all 0.3s ease',
               textAlign: 'left',
+              position: 'relative',
             }}
           >
-            ↩️ Returned to Me ({submissions.filter(s => s.stage === 'Stage2' && s.returnedFromReview).length})
+            ↩️ Returned to Me ({notificationCounts.workflow?.returned || submissions.filter(s => s.stage === 'Stage2' && s.returnedFromReview).length})
+            {/* Notification badge */}
+            {(() => {
+              const count = notificationCounts.workflow?.returned || submissions.filter(s => s.stage === 'Stage2' && s.returnedFromReview).length;
+              if (count > 0) {
+                return (
+                  <div style={{
+                    position: 'absolute',
+                    top: -6,
+                    right: -6,
+                    background: '#ff3b30',
+                    color: '#ffffff',
+                    borderRadius: '50%',
+                    minWidth: '18px',
+                    height: '18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    border: '2px solid rgba(255, 255, 255, 0.95)',
+                    boxShadow: '0 2px 6px rgba(255, 59, 48, 0.3)',
+                    zIndex: 1,
+                    animation: count > 0 ? 'badgePulse 2s ease-in-out infinite' : 'none',
+                  }}>
+                    {Math.min(count, 999)}
+                  </div>
+                );
+              }
+              return null;
+            })()}
           </button>
           <button
             onClick={() => {
@@ -1045,7 +1131,7 @@ export default function FinalApproval() {
               marginBottom: '0.5rem',
               background: activeTab === 'sent' ? (dark ? '#4F2683' : '#a259e6') : 'transparent',
               color: activeTab === 'sent' ? '#fff' : (dark ? '#e0d6f7' : '#201436'),
-              border: 'none',
+              border: '1.5px solid #bbaed6',
               borderRadius: '6px',
               cursor: 'pointer',
               fontFamily: "'BentonSans Book'",
@@ -1053,10 +1139,72 @@ export default function FinalApproval() {
               fontWeight: activeTab === 'sent' ? 600 : 400,
               transition: 'all 0.3s ease',
               textAlign: 'left',
+              position: 'relative',
             }}
           >
-            📤 Sent by Me ({submissions.filter(s => s.stage === 'Stage3' && s.filename.includes(atob(sessionStorage.getItem('authUser') || ''))).length})
+            📤 Submission History ({notificationCounts.workflow?.sent || submissions.filter(s => s.stage === 'Stage3' && s.filename.includes(atob(sessionStorage.getItem('authUser') || ''))).length})
+            {/* Notification badge */}
+            {(() => {
+              const count = notificationCounts.workflow?.sent || submissions.filter(s => s.stage === 'Stage3' && s.filename.includes(atob(sessionStorage.getItem('authUser') || ''))).length;
+              if (count > 0) {
+                return (
+                  <div style={{
+                    position: 'absolute',
+                    top: -6,
+                    right: -6,
+                    background: '#ff3b30',
+                    color: '#ffffff',
+                    borderRadius: '50%',
+                    minWidth: '18px',
+                    height: '18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    border: '2px solid rgba(255, 255, 255, 0.95)',
+                    boxShadow: '0 2px 6px rgba(255, 59, 48, 0.3)',
+                    zIndex: 1,
+                    animation: count > 0 ? 'badgePulse 2s ease-in-out infinite' : 'none',
+                  }}>
+                    {Math.min(count, 999)}
+                  </div>
+                );
+              }
+              return null;
+            })()}
           </button>
+          {/* Clear History Button - only show when on sent tab */}
+          {activeTab === 'sent' && (
+            <button
+              onClick={clearHistory}
+              style={{
+                width: '100%',
+                padding: '0.5rem 1rem',
+                marginBottom: '0.5rem',
+                background: '#dc2626',
+                color: '#ffffff',
+                border: '1.5px solid #dc2626',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontFamily: "'BentonSans Book'",
+                fontSize: '0.8rem',
+                fontWeight: 500,
+                transition: 'all 0.3s ease',
+                textAlign: 'center',
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.backgroundColor = '#b91c1c';
+                e.target.style.borderColor = '#b91c1c';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.backgroundColor = '#dc2626';
+                e.target.style.borderColor = '#dc2626';
+              }}
+            >
+              🗑️ Clear History
+            </button>
+          )}
           <button
             onClick={() => {
               setActiveTab('sent-back');
@@ -1069,7 +1217,7 @@ export default function FinalApproval() {
               marginBottom: '0.5rem',
               background: activeTab === 'sent-back' ? (dark ? '#4F2683' : '#a259e6') : 'transparent',
               color: activeTab === 'sent-back' ? '#fff' : (dark ? '#e0d6f7' : '#201436'),
-              border: 'none',
+              border: '1.5px solid #bbaed6',
               borderRadius: '6px',
               cursor: 'pointer',
               fontFamily: "'BentonSans Book'",
@@ -1077,9 +1225,40 @@ export default function FinalApproval() {
               fontWeight: activeTab === 'sent-back' ? 600 : 400,
               transition: 'all 0.3s ease',
               textAlign: 'left',
+              position: 'relative',
             }}
           >
-            🔄 Returned to Student ({submissions.filter(s => s.stage === 'Stage1' && s.sentBackBy === atob(sessionStorage.getItem('authUser') || '')).length})
+            🔄 Returned to Student ({notificationCounts.workflow?.sentBack || submissions.filter(s => s.stage === 'Stage1' && s.sentBackBy === atob(sessionStorage.getItem('authUser') || '')).length})
+            {/* Notification badge */}
+            {(() => {
+              const count = notificationCounts.workflow?.sentBack || submissions.filter(s => s.stage === 'Stage1' && s.sentBackBy === atob(sessionStorage.getItem('authUser') || '')).length;
+              if (count > 0) {
+                return (
+                  <div style={{
+                    position: 'absolute',
+                    top: -6,
+                    right: -6,
+                    background: '#ff3b30',
+                    color: '#ffffff',
+                    borderRadius: '50%',
+                    minWidth: '18px',
+                    height: '18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    border: '2px solid rgba(255, 255, 255, 0.95)',
+                    boxShadow: '0 2px 6px rgba(255, 59, 48, 0.3)',
+                    zIndex: 1,
+                    animation: count > 0 ? 'badgePulse 2s ease-in-out infinite' : 'none',
+                  }}>
+                    {Math.min(count, 999)}
+                  </div>
+                );
+              }
+              return null;
+            })()}
           </button>
         </div>
         
@@ -1174,7 +1353,7 @@ export default function FinalApproval() {
           <h1 style={styles.h1(dark)}>
             {activeTab === 'to-review' ? 'To Review' : 
              activeTab === 'returned' ? 'Returned to Me' : 
-             activeTab === 'sent' ? 'Sent by Me' :
+             activeTab === 'sent' ? 'Submission History' :
              'Returned to Student'}
           </h1>
           <div style={{ fontWeight: 500, marginBottom: 12 }}>
@@ -1221,11 +1400,9 @@ export default function FinalApproval() {
                   height: '100%',
                   minWidth: 400,
                   minHeight: 300,
-                  border: dragOver ? '3px dashed #4F2683' : '2px solid #ccc',
+                  border: '2px solid #ccc',
                   borderRadius: 8,
-                  background: dragOver 
-                    ? (dark ? 'rgba(79, 38, 131, 0.1)' : 'rgba(79, 38, 131, 0.05)')
-                    : (dark ? '#2a1a3a' : '#f9f9f9'),
+                  background: dark ? '#2a1a3a' : '#f9f9f9',
                   marginTop: 0,
                   marginBottom: 0,
                   boxSizing: 'border-box',
@@ -1235,9 +1412,6 @@ export default function FinalApproval() {
                   justifyContent: 'center',
                   transition: 'all 0.3s ease',
                 }}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
               >
                 {selected ? (
                   <div style={{ textAlign: 'center', padding: '2rem' }}>
@@ -1266,7 +1440,7 @@ export default function FinalApproval() {
                     }}>
                       {activeTab === 'to-review' ? 'Ready for download and modification' : 
                        activeTab === 'returned' ? 'Returned document ready for download and review' :
-                       activeTab === 'sent' ? 'Document you approved and published - available for download' :
+                                               activeTab === 'sent' ? 'Document in submission history - available for download' :
                        'Document you returned to student - available for download'}
                     </p>
                     <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'center' }}>
@@ -1292,15 +1466,22 @@ export default function FinalApproval() {
                       >
                         👁️ Preview PDF
                       </button>
-                      <div style={{ 
-                        padding: '12px 24px',
-                        border: '2px dashed #4F2683',
-                        borderRadius: 8,
-                        color: dark ? '#e0d6f7' : '#201436',
-                        fontSize: '1rem',
-                        textAlign: 'center',
-                        minWidth: '200px'
-                      }}>
+                      <div 
+                        style={{ 
+                          padding: '12px 24px',
+                          border: dragOver ? '3px dashed #4F2683' : '2px dashed #4F2683',
+                          borderRadius: 8,
+                          color: dark ? '#e0d6f7' : '#201436',
+                          fontSize: '1rem',
+                          textAlign: 'center',
+                          minWidth: '200px',
+                          background: dragOver ? (dark ? 'rgba(79, 38, 131, 0.1)' : 'rgba(79, 38, 131, 0.05)') : 'transparent',
+                          transition: 'all 0.3s ease',
+                        }}
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                        onDrop={handleDrop}
+                      >
                         📤 Drop modified PDF here
                       </div>
                     </div>
@@ -1332,7 +1513,7 @@ export default function FinalApproval() {
                     }}>
                       {activeTab === 'to-review' ? 'Select a submission' : 
                        activeTab === 'returned' ? 'Select a returned document' :
-                       activeTab === 'sent' ? 'Select a sent document' :
+                                               activeTab === 'sent' ? 'Select a document from history' :
                        'Select a returned document'}
                     </h3>
                     <p style={{ 
@@ -1341,7 +1522,7 @@ export default function FinalApproval() {
                     }}>
                       {activeTab === 'to-review' ? 'Choose a document from the sidebar to download and modify' : 
                        activeTab === 'returned' ? 'Choose a returned document from the sidebar to review' :
-                       activeTab === 'sent' ? 'Choose a document you approved and published' :
+                                               activeTab === 'sent' ? 'Choose a document from your submission history' :
                        'Choose a document you returned to a student'}
                     </p>
                   </div>
