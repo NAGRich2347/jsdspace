@@ -241,13 +241,15 @@ const styles = {
 
 export default function Login() {
   // State management for form inputs and UI
-  const [username, setUsername] = useState(''); // Username input value
-  const [password, setPassword] = useState(''); // Password input value
-  const [error, setError] = useState(''); // Error message display
-  const [dark, setDark] = useState(localStorage.getItem('theme') === 'dark'); // Dark/light theme state
-  const [fontSize, setFontSize] = useState(localStorage.getItem('fontSize') || '14px'); // Font size preference
-  const [loading, setLoading] = useState(false); // Loading state for form submission
-  const navigate = useNavigate(); // React Router navigation hook
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [dark, setDark] = useState(localStorage.getItem('theme') === 'dark');
+  const [fontSize, setFontSize] = useState(localStorage.getItem('fontSize') || '14px');
+  const [loading, setLoading] = useState(false);
+  const [retry, setRetry] = useState(false);
+  const [loginAttempted, setLoginAttempted] = useState(false);
+  const navigate = useNavigate();
 
   // Persist theme preference to localStorage
   useEffect(() => {
@@ -260,35 +262,50 @@ export default function Login() {
     localStorage.setItem('fontSize', fontSize);
   }, [fontSize]);
 
+  // Real-time validation feedback
+  const validateUsername = (val) => {
+    if (!val) return 'Username is required.';
+    if (val.length < 3) return 'Username must be at least 3 characters.';
+    return '';
+  };
+  const validatePassword = (val) => {
+    if (!val) return 'Password is required.';
+    if (val.length < 3) return 'Password must be at least 3 characters.';
+    return '';
+  };
+  const usernameError = loginAttempted ? validateUsername(username) : '';
+  const passwordError = loginAttempted ? validatePassword(password) : '';
+
   // Handle login form submission with proper API authentication
   const handleSubmit = async (e) => {
-    e.preventDefault(); // Prevent default form submission
-    setError(''); // Clear any previous errors
-    setLoading(true); // Show loading state
-    
+    e.preventDefault();
+    setLoginAttempted(true);
+    setError('');
+    setLoading(true);
+    setRetry(false);
+    // Real-time validation before API call
+    if (validateUsername(username) || validatePassword(password)) {
+      setError('Please fix the errors above and try again.');
+      setLoading(false);
+      return;
+    }
     try {
       // Try to call the backend authentication API first
       const response = await api.post('/submissions/login', {
         username,
         password
       });
-      
       if (response.data && response.data.username && response.data.role) {
-        // Store authentication data in sessionStorage (base64 encoded for basic obfuscation)
         sessionStorage.setItem('authUser', btoa(response.data.username));
         sessionStorage.setItem('authRole', btoa(response.data.role));
-        sessionStorage.setItem('expiresAt', (Date.now() + 15 * 60 * 1000).toString()); // 15 minute session
-        
-        // Navigate to appropriate route based on user role
+        sessionStorage.setItem('expiresAt', (Date.now() + 15 * 60 * 1000).toString());
         navigate(roleToRoute[response.data.role] || '/login');
       } else {
         setError('Invalid response from server.');
+        setRetry(true);
       }
     } catch (err) {
-      // If server is not available, use fallback authentication
-      console.log('Server authentication failed, trying fallback...');
-      
-      // Fallback user credentials (same as in users.json but with plain text passwords)
+      // Fallback user credentials
       const fallbackUsers = [
         { username: 'student1', password: 'password', role: 'student' },
         { username: 'student2', password: 'password', role: 'student' },
@@ -300,28 +317,30 @@ export default function Login() {
         { username: 'reviewer2', password: 'password', role: 'reviewer' },
         { username: 'admin1', password: 'password', role: 'admin' }
       ];
-      
-      // Check if credentials match fallback users
       const user = fallbackUsers.find(u => u.username === username && u.password === password);
-      
       if (user) {
-        // Store authentication data in sessionStorage (base64 encoded for basic obfuscation)
         sessionStorage.setItem('authUser', btoa(user.username));
         sessionStorage.setItem('authRole', btoa(user.role));
-        sessionStorage.setItem('expiresAt', (Date.now() + 15 * 60 * 1000).toString()); // 15 minute session
-        
-        // Navigate to appropriate route based on user role
+        sessionStorage.setItem('expiresAt', (Date.now() + 15 * 60 * 1000).toString());
         navigate(roleToRoute[user.role] || '/login');
       } else {
         setError('Invalid username or password.');
+        setRetry(true);
       }
     } finally {
-      setLoading(false); // Hide loading state
+      setLoading(false);
     }
   };
 
+  const handleRetry = (e) => {
+    setRetry(false);
+    setError('');
+    setLoading(false);
+    setLoginAttempted(false);
+  };
+
   return (
-    <div style={styles.body(dark, fontSize)}>
+    <div style={{ ...styles.body(dark, fontSize), flexDirection: 'column', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {/* Global CSS to force fullscreen layout without scrollbars */}
       <style>{`
         html, body, #root {
@@ -339,8 +358,7 @@ export default function Login() {
           display: none !important;
         }
       `}</style>
-      
-      {/* Settings Bar - Dark mode toggle and font size selector */}
+      {/* Settings Bar - Dark mode toggle and font size selector (fixed top-right, as on other pages) */}
       <div style={styles.settingsBar}>
         {/* Dark/Light Mode Toggle */}
         <label style={{ display: 'flex', alignItems: 'center' }}>
@@ -357,7 +375,6 @@ export default function Login() {
             <span style={styles.sliderBefore(dark)}>{dark ? '🌙' : '☀'}</span>
           </span>
         </label>
-        
         {/* Font Size Selector */}
         <select
           id="fontSizeSelect"
@@ -371,22 +388,24 @@ export default function Login() {
           <option value="12px">Small</option>
         </select>
       </div>
-      
       {/* Main Login Form */}
       <form style={styles.container(dark)} onSubmit={handleSubmit} autoComplete="on" aria-label="Login form">
         <h2 style={styles.h2(dark)}>Sign In</h2>
         <div style={styles.subtitle(dark)}>Welcome to DSpace Workflow. Please log in to continue.</div>
-        
         {/* Error Message Display */}
-        <div style={styles.error}>{error}</div>
-        
+        <div style={styles.error} aria-live="assertive" role="alert">
+          {error}
+          {error.includes('username') && <div>Tip: Check your username spelling or try a different account.</div>}
+          {error.includes('password') && <div>Tip: Passwords are case-sensitive. Try again or contact support.</div>}
+          {error.includes('server') && <div>Tip: The server may be down. Try again later or use fallback login.</div>}
+        </div>
         {/* Username Input Field */}
         <div style={styles.inputWrap}>
           <label htmlFor="username" style={styles.label(dark)}>
             Username
           </label>
           <input
-            style={styles.input(dark, !!error)}
+            style={styles.input(dark, !!usernameError)}
             type="text"
             id="username"
             placeholder="Username"
@@ -395,10 +414,12 @@ export default function Login() {
             required
             autoFocus
             autoComplete="username"
-            aria-invalid={!!error}
-            aria-describedby={error ? 'login-error' : undefined}
+            aria-invalid={!!usernameError}
+            aria-describedby={usernameError ? 'username-error' : undefined}
             tabIndex={1}
+            onBlur={() => setLoginAttempted(true)}
           />
+          {usernameError && <div id="username-error" style={{ color: '#e74c3c', fontSize: '0.95rem', marginTop: 2 }}>{usernameError}</div>}
         </div>
         
         {/* Password Input Field */}
@@ -407,7 +428,7 @@ export default function Login() {
             Password
           </label>
           <input
-            style={styles.input(dark, !!error)}
+            style={styles.input(dark, !!passwordError)}
             type="password"
             id="password"
             placeholder="Password"
@@ -415,10 +436,12 @@ export default function Login() {
             onChange={e => setPassword(e.target.value)}
             required
             autoComplete="current-password"
-            aria-invalid={!!error}
-            aria-describedby={error ? 'login-error' : undefined}
+            aria-invalid={!!passwordError}
+            aria-describedby={passwordError ? 'password-error' : undefined}
             tabIndex={2}
+            onBlur={() => setLoginAttempted(true)}
           />
+          {passwordError && <div id="password-error" style={{ color: '#e74c3c', fontSize: '0.95rem', marginTop: 2 }}>{passwordError}</div>}
         </div>
         
         {/* Submit Button with Loading State */}
@@ -427,9 +450,20 @@ export default function Login() {
           style={styles.button(dark, loading)}
           disabled={loading}
           tabIndex={4}
+          aria-busy={loading}
         >
           {loading && <span style={styles.spinner} aria-label="Loading" />} Log In
         </button>
+        {retry && (
+          <button
+            type="button"
+            style={{ ...styles.button(dark, false), background: '#f1c40f', color: '#201436', marginTop: 10 }}
+            onClick={handleRetry}
+            aria-label="Retry login"
+          >
+            Retry
+          </button>
+        )}
         
         {/* Demo Links */}
         <div style={{
@@ -476,6 +510,11 @@ export default function Login() {
           </a>
         </div>
       </form>
+      {/* Mobile & accessibility tips (now below the form, centered horizontally) */}
+      <div className="mt-4 text-xs text-gray-500" aria-live="polite" style={{ textAlign: 'center', marginTop: 24, maxWidth: 400, width: '100%' }}>
+        <div>Supported on mobile and desktop. Use keyboard navigation to tab through fields.</div>
+        <div>Screen reader friendly. All errors and progress are announced.</div>
+      </div>
       
       {/* CSS Animations for fadeIn and spinner effects */}
       <style>{`

@@ -366,6 +366,12 @@ const autoRenameFile = (originalFilename, newStage, currentUser = null, includeU
   return originalFilename.replace(/\.pdf$/i, `_${newStage}.pdf`);
 };
 
+function generateICS({ title, description, start, end }) {
+  const dtStart = new Date(start).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  const dtEnd = new Date(end).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  return `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nSUMMARY:${title}\nDESCRIPTION:${description}\nDTSTART:${dtStart}\nDTEND:${dtEnd}\nEND:VEVENT\nEND:VCALENDAR`;
+}
+
 // --- Main Component ---
 export default function FinalApproval() {
   // --- State variables ---
@@ -390,6 +396,7 @@ export default function FinalApproval() {
   
   // Real-time notification state
   const [notificationCounts, setNotificationCounts] = useState({});
+  const [editingDeadline, setEditingDeadline] = useState(null); // submission index being edited
 
   // --- Constants for layout ---
   const REVIEW_CONTROLS_WIDTH = 350;
@@ -525,26 +532,41 @@ export default function FinalApproval() {
     return () => clearInterval(intervalId);
   }, []);
 
-  // Filtered submissions based on active tab, sorted by submission time (oldest first)
-  const filtered = submissions.filter(s => {
-    const matchesSearch = !search || s.filename.toLowerCase().includes(search.toLowerCase());
-    const currentUser = atob(sessionStorage.getItem('authUser') || '');
-    
-    if (activeTab === 'to-review') {
-      // Documents that need to be reviewed by the current user (Stage2)
-      return s.stage === 'Stage2' && !s.returnedFromReview && matchesSearch;
-    } else if (activeTab === 'returned') {
-      // Documents that have been returned to the current user from someone else (Stage2 with returnedFromReview flag)
-      return s.stage === 'Stage2' && s.returnedFromReview && matchesSearch;
-    } else if (activeTab === 'sent') {
-      // Documents that the current user has sent to someone else (Stage3 - approved/published)
-      return s.stage === 'Stage3' && s.filename.includes(currentUser) && matchesSearch;
-    } else if (activeTab === 'sent-back') {
-      // Documents that the current user has sent back to someone else (Stage1 with sentBackBy flag)
-      return s.stage === 'Stage1' && s.sentBackBy === currentUser && matchesSearch;
+  // Filtering logic
+  const [filter, setFilter] = useState(() => {
+    const user = atob(sessionStorage.getItem('authUser') || '');
+    return JSON.parse(localStorage.getItem(`reviewerFilter_${user}`) || '{}');
+  });
+  const [filtered, setFiltered] = useState([]);
+
+  useEffect(() => {
+    const user = atob(sessionStorage.getItem('authUser') || '');
+    localStorage.setItem(`reviewerFilter_${user}`, JSON.stringify(filter));
+    let data = [...submissions];
+    if (filter.user) {
+      data = data.filter(s => (s.user || s.filename || '').toLowerCase().includes(filter.user.toLowerCase()));
     }
-    return false;
-  }).sort((a, b) => a.time - b.time); // Sort by submission time, oldest first
+    if (filter.status) {
+      data = data.filter(s => (s.status || s.stage || '').toLowerCase().includes(filter.status.toLowerCase()));
+    }
+    if (filter.dateFrom) {
+      const from = new Date(filter.dateFrom).getTime();
+      data = data.filter(s => s.time && s.time >= from);
+    }
+    if (filter.dateTo) {
+      const to = new Date(filter.dateTo).getTime();
+      data = data.filter(s => s.time && s.time <= to);
+    }
+    setFiltered(data);
+  }, [filter, submissions]);
+
+  const handleFilterChange = (e) => {
+    const { name, value } = e.target;
+    setFilter(f => ({ ...f, [name]: value }));
+  };
+  const handleClearFilters = () => {
+    setFilter({});
+  };
 
   // Select a submission
   const selectSubmission = (s, idx) => {
@@ -896,22 +918,36 @@ export default function FinalApproval() {
     setTimeout(() => setSuccessMsg(''), 5000);
   };
 
-
+  // Handler to set or update a deadline
+  const handleDeadlineChange = (idx, value) => {
+    setSubmissions(subs => {
+      const updated = [...subs];
+      updated[idx] = { ...updated[idx], deadline: value };
+      localStorage.setItem('submissions', JSON.stringify(updated));
+      return updated;
+    });
+    setEditingDeadline(null);
+  };
+  // Handler to export deadline to calendar
+  const handleExportCalendar = (submission) => {
+    const title = `Review Deadline: ${submission.filename || submission.user || 'Document'}`;
+    const description = `Deadline for document: ${submission.filename || ''}`;
+    const start = submission.deadline;
+    const end = submission.deadline;
+    const ics = generateICS({ title, description, start, end });
+    const blob = new Blob([ics], { type: 'text/calendar' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${title.replace(/\s+/g, '_')}.ics`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   return (
-    <div style={{
-      ...styles.body(dark, fontSize),
-      minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'flex-start',
-      paddingTop: 0,
-      boxSizing: 'border-box',
-      background: dark
-        ? 'radial-gradient(ellipse at 50% 40%, #231942 0%, #4F2683 80%, #18122b 100%)'
-        : 'radial-gradient(ellipse at 50% 40%, #fff 0%, #e9e6f7 80%, #cfc6e6 100%)',
-    }}>
+    <div style={{ ...styles.body(dark, fontSize), flexDirection: 'column', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {/* --- Notification System --- */}
       <NotificationSystem 
         dark={dark} 
@@ -1001,11 +1037,58 @@ export default function FinalApproval() {
       </div>
       {/* --- Sidebar --- */}
       <div style={styles.sidebar(dark, sidebarOpen)}>
-        {/* Tab Navigation - Vertical Layout */}
+        {/* Advanced Filter Bar (now at the top of sidebar, spaced from hamburger) */}
+        <div style={{
+          marginTop: 56, // Add vertical space from the top (height of hamburger + extra)
+          display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 18, background: dark ? '#2a1a3a' : '#f7f7fa', borderRadius: 10, padding: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
+        }}>
+          <input
+            type="text"
+            name="user"
+            value={filter.user || ''}
+            onChange={handleFilterChange}
+            placeholder="Filter by user or filename"
+            aria-label="Filter by user or filename"
+            style={{ padding: 8, borderRadius: 6, border: '1.5px solid #bbaed6', minWidth: 120 }}
+          />
+          <input
+            type="text"
+            name="status"
+            value={filter.status || ''}
+            onChange={handleFilterChange}
+            placeholder="Filter by status"
+            aria-label="Filter by status"
+            style={{ padding: 8, borderRadius: 6, border: '1.5px solid #bbaed6', minWidth: 120 }}
+          />
+          <input
+            type="date"
+            name="dateFrom"
+            value={filter.dateFrom || ''}
+            onChange={handleFilterChange}
+            aria-label="From date"
+            style={{ padding: 8, borderRadius: 6, border: '1.5px solid #bbaed6' }}
+          />
+          <input
+            type="date"
+            name="dateTo"
+            value={filter.dateTo || ''}
+            onChange={handleFilterChange}
+            aria-label="To date"
+            style={{ padding: 8, borderRadius: 6, border: '1.5px solid #bbaed6' }}
+          />
+          <button
+            onClick={handleClearFilters}
+            style={{ padding: '8px 16px', borderRadius: 6, background: '#e74c3c', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer' }}
+            aria-label="Clear filters"
+          >
+            Clear
+          </button>
+          <span style={{ fontSize: 13, color: '#888', marginLeft: 8 }}>Filters are saved automatically</span>
+        </div>
+        {/* Tab Navigation - now below filter bar */}
         <div style={{
           display: 'flex',
           flexDirection: 'column',
-          marginTop: '90px', // Align with bottom of settings panel
           marginBottom: '1rem',
           borderBottom: `1px solid ${dark ? '#4a5568' : '#e2e8f0'}`,
         }}>
@@ -1261,17 +1344,7 @@ export default function FinalApproval() {
             })()}
           </button>
         </div>
-        
-        <label htmlFor="searchInput" style={{ display: 'none' }}>Search submissions</label>
-        <input
-          id="searchInput"
-          name="search"
-          type="text"
-          placeholder="Search…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={styles.sidebarInput(dark)}
-        />
+        {/* Submission list remains below */}
         <div>
           {filtered.map((s, i) => {
             const displayInfo = getDisplayFilenameWithBreaks(s);
@@ -1796,6 +1869,11 @@ export default function FinalApproval() {
             }}>{successMsg}</div>
           )}
         </div>
+      </div>
+      {/* Mobile & accessibility tips (now below the main content, centered horizontally) */}
+      <div className="mt-4 text-xs text-gray-500" aria-live="polite" style={{ textAlign: 'center', marginTop: 24, maxWidth: 400, width: '100%' }}>
+        <div>Optimized for mobile and desktop. Use keyboard navigation to tab through fields.</div>
+        <div>Touch-friendly buttons. Screen reader friendly. All errors and progress are announced.</div>
       </div>
     </div>
   );

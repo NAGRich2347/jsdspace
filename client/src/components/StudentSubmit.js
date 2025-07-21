@@ -241,7 +241,29 @@ export default function StudentSubmit() {
   const [hover, setHover] = useState(false); // Button hover state for visual feedback
   const [showProgress, setShowProgress] = useState(false); // Show progress after submission
   const [submittedDocument, setSubmittedDocument] = useState(null); // Store submitted document info
+  const [loading, setLoading] = useState(false);
+  const [retry, setRetry] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const navigate = useNavigate(); // React Router navigation hook
+
+  // Real-time validation feedback
+  const validateFirst = (val) => {
+    if (!val) return 'First name is required.';
+    if (val.length < 2) return 'First name must be at least 2 characters.';
+    return '';
+  };
+  const validateLast = (val) => {
+    if (!val) return 'Last name is required.';
+    if (val.length < 2) return 'Last name must be at least 2 characters.';
+    return '';
+  };
+  const validateFiles = (arr) => {
+    if (!arr || arr.length === 0) return 'Please select at least one PDF file.';
+    return '';
+  };
+  const firstError = submitAttempted ? validateFirst(first) : '';
+  const lastError = submitAttempted ? validateLast(last) : '';
+  const filesError = submitAttempted ? validateFiles(files) : '';
 
   // Access control: verify user is authenticated as a student
   useEffect(() => {
@@ -359,107 +381,122 @@ export default function StudentSubmit() {
    * to both user-specific and global localStorage.
    */
   const handleSubmit = async () => {
-    // Validate that all required fields are filled
-    const normalizedFirst = normalizeName(first);
-    const normalizedLast = normalizeName(last);
-    
-    if (!normalizedFirst || !normalizedLast) {
-      window.alert('Please enter both first and last name');
+    setSubmitAttempted(true);
+    setAlert('');
+    setRetry(false);
+    if (validateFirst(first) || validateLast(last) || validateFiles(files)) {
+      setAlert('Please fix the errors above and try again.');
       return;
     }
-    
-    if (files.length === 0) {
-      window.alert('Please select at least one PDF file');
-      return;
-    }
-    
-    // Validate all files
-    for (const file of files) {
-      if (!validateFileType(file)) {
+    setLoading(true);
+    try {
+      // Validate that all required fields are filled
+      const normalizedFirst = normalizeName(first);
+      const normalizedLast = normalizeName(last);
+      
+      if (!normalizedFirst || !normalizedLast) {
+        window.alert('Please enter both first and last name');
         return;
       }
-      if (!validateFileSize(file)) {
+      
+      if (files.length === 0) {
+        window.alert('Please select at least one PDF file');
         return;
       }
-    }
-    
-    // Show confirmation dialog if enabled
-    if (confirmOn && !window.confirm(`Submit ${files.length} file(s)?`)) return;
-    
-    // Process each file
-    const submissions = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const suffix = files.length > 1 ? `_${i + 1}` : '';
-      const expectedFilename = `${normalizedFirst}_${normalizedLast}_Stage1.pdf` + suffix;
-      const renamedFile = new File([file], expectedFilename, { type: 'application/pdf' });
-    
-    // Show confirmation dialog if enabled
-    if (confirmOn && !window.confirm('Submit now?')) return;
-    
-    // Get current user for tracking
-    const user = atob(sessionStorage.getItem('authUser') || ''); // Decode username
-    const key = `submissions_${user}`; // User-specific storage key
-    const arr = JSON.parse(localStorage.getItem(key) || '[]'); // Get user's submissions
-    
-      // Convert File object to base64 string for localStorage storage
-      const base64 = await new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(',')[1]); // Extract base64 data
-        reader.readAsDataURL(renamedFile);
+      
+      // Validate all files
+      for (const file of files) {
+        if (!validateFileType(file)) {
+          return;
+        }
+        if (!validateFileSize(file)) {
+          return;
+        }
+      }
+      
+      // Show confirmation dialog if enabled
+      if (confirmOn && !window.confirm(`Submit ${files.length} file(s)?`)) return;
+      
+      // Process each file
+      const submissions = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const suffix = files.length > 1 ? `_${i + 1}` : '';
+        const expectedFilename = `${normalizedFirst}_${normalizedLast}_Stage1.pdf` + suffix;
+        const renamedFile = new File([file], expectedFilename, { type: 'application/pdf' });
+      
+      // Show confirmation dialog if enabled
+      if (confirmOn && !window.confirm('Submit now?')) return;
+      
+      // Get current user for tracking
+      const user = atob(sessionStorage.getItem('authUser') || ''); // Decode username
+      const key = `submissions_${user}`; // User-specific storage key
+      const arr = JSON.parse(localStorage.getItem(key) || '[]'); // Get user's submissions
+      
+        // Convert File object to base64 string for localStorage storage
+        const base64 = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(',')[1]); // Extract base64 data
+          reader.readAsDataURL(renamedFile);
+        });
+        
+        // Trim notes and treat as empty if only spaces
+        const trimmedNotes = notes.trim();
+        // Create submission object with both File and base64 content
+        const submission = {
+          filename: expectedFilename,
+          file: renamedFile, // Use renamed File object
+          content: base64, // Store base64 for localStorage persistence
+          notes: trimmedNotes ? sanitizeInput(trimmedNotes) : '', // Sanitize notes, treat empty if only spaces
+          time: Date.now(),
+          stage: 'Stage1',
+          user: atob(sessionStorage.getItem('authUser') || '')
+        };
+        
+        submissions.push(submission);
+      }
+      
+      // Get current user for tracking
+      const user = atob(sessionStorage.getItem('authUser') || ''); // Decode username
+      const key = `submissions_${user}`; // User-specific storage key
+      const arr = JSON.parse(localStorage.getItem(key) || '[]'); // Get user's submissions
+      
+      // Save all submissions to user-specific storage
+      arr.push(...submissions);
+      localStorage.setItem(key, JSON.stringify(arr));
+      
+      // Save to global submissions list for reviewers to access
+      const all = JSON.parse(localStorage.getItem('submissions') || '[]');
+      const serializableSubmissions = submissions.map(submission => ({
+        ...submission,
+        file: null, // Remove File object for JSON serialization
+      }));
+      all.push(...serializableSubmissions);
+      localStorage.setItem('submissions', JSON.stringify(all));
+      
+      // Store submitted document info for progress display (show first file)
+      setSubmittedDocument({
+        filename: submissions[0].filename,
+        stage: 'Stage0',
+        status: 'Pending'
       });
       
-      // Trim notes and treat as empty if only spaces
-      const trimmedNotes = notes.trim();
-      // Create submission object with both File and base64 content
-      const submission = {
-        filename: expectedFilename,
-        file: renamedFile, // Use renamed File object
-        content: base64, // Store base64 for localStorage persistence
-        notes: trimmedNotes ? sanitizeInput(trimmedNotes) : '', // Sanitize notes, treat empty if only spaces
-        time: Date.now(),
-        stage: 'Stage1',
-        user: atob(sessionStorage.getItem('authUser') || '')
-      };
+      // Show progress view
+      setShowProgress(true);
       
-      submissions.push(submission);
+      // Show success message and reset form
+      setAlert(`Successfully submitted ${submissions.length} file(s)!`);
+      setTimeout(() => setAlert(''), 10000); // Clear alert after 10 seconds
+      setFirst(''); // Clear first name
+      setLast(''); // Clear last name
+      setFiles([]); // Clear file selection
+      setNotes(''); // Clear notes
+    } catch (err) {
+      setAlert('Submission failed. Please check your internet connection or try again.');
+      setRetry(true);
+    } finally {
+      setLoading(false);
     }
-    
-    // Get current user for tracking
-    const user = atob(sessionStorage.getItem('authUser') || ''); // Decode username
-    const key = `submissions_${user}`; // User-specific storage key
-    const arr = JSON.parse(localStorage.getItem(key) || '[]'); // Get user's submissions
-    
-    // Save all submissions to user-specific storage
-    arr.push(...submissions);
-    localStorage.setItem(key, JSON.stringify(arr));
-    
-    // Save to global submissions list for reviewers to access
-    const all = JSON.parse(localStorage.getItem('submissions') || '[]');
-    const serializableSubmissions = submissions.map(submission => ({
-      ...submission,
-      file: null, // Remove File object for JSON serialization
-    }));
-    all.push(...serializableSubmissions);
-    localStorage.setItem('submissions', JSON.stringify(all));
-    
-    // Store submitted document info for progress display (show first file)
-    setSubmittedDocument({
-      filename: submissions[0].filename,
-      stage: 'Stage0',
-      status: 'Pending'
-    });
-    
-    // Show progress view
-    setShowProgress(true);
-    
-    // Show success message and reset form
-    setAlert(`Successfully submitted ${submissions.length} file(s)!`);
-    setTimeout(() => setAlert(''), 10000); // Clear alert after 10 seconds
-    setFirst(''); // Clear first name
-    setLast(''); // Clear last name
-    setFiles([]); // Clear file selection
-    setNotes(''); // Clear notes
   };
 
   /**
@@ -484,8 +521,15 @@ export default function StudentSubmit() {
     navigate('/documents');
   };
 
+  const handleRetry = () => {
+    setRetry(false);
+    setAlert('');
+    setLoading(false);
+    setSubmitAttempted(false);
+  };
+
   return (
-    <div style={{ ...styles.body(dark, fontSize) }}>
+    <div style={{ ...styles.body(dark, fontSize), flexDirection: 'column', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <NotificationSystem 
         dark={dark} 
         onOpenDocument={handleOpenDocumentFromNotification}
@@ -585,7 +629,7 @@ export default function StudentSubmit() {
         <button onClick={handleLogout} style={styles.button(dark, hover)} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>Logout</button>
       </div>
       {/* Main Form or Progress View */}
-      <div style={styles.container(dark)}>
+      <div style={{ ...styles.container(dark), maxWidth: 500, width: '100%', margin: 'auto', borderRadius: 18, boxShadow: dark ? '0 8px 40px 0 rgba(79,38,131,0.25)' : '0 4px 32px rgba(80,40,130,0.10)', padding: '2rem 1rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         {showProgress && submittedDocument ? (
           <>
             <h1 style={styles.h1(dark)}>Documents Submitted!</h1>
@@ -612,66 +656,114 @@ export default function StudentSubmit() {
         ) : (
           <>
             <h1 style={styles.h1(dark)}>Submit Dissertation</h1>
-        <label htmlFor="firstName" style={{ display: 'none' }}>First Name</label>
-        <input
-          id="firstName"
-          name="firstName"
-          type="text"
-          placeholder="First Name"
-          value={first}
-          onChange={e => setFirst(e.target.value)}
-          style={styles.input(dark, false)}
-        />
-        <label htmlFor="lastName" style={{ display: 'none' }}>Last Name</label>
-        <input
-          id="lastName"
-          name="lastName"
-          type="text"
-          placeholder="Last Name"
-          value={last}
-          onChange={e => setLast(e.target.value)}
-          style={styles.input(dark, false)}
-        />
-        <FileUpload
-          files={files}
-          onFilesChange={setFiles}
-          dark={dark}
-          multiple={true}
-          maxFiles={5}
-          maxSizeMB={10}
-        />
-        <label htmlFor="notes" style={{ display: 'none' }}>Notes</label>
-        <textarea
-          id="notes"
-          name="notes"
-          rows={4}
-          placeholder="Notes (optional)"
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
-          style={styles.textarea(dark)}
-        />
-        <button
-          onClick={handleSubmit}
-          style={styles.button(dark, hover)}
-          onMouseEnter={() => setHover(true)}
-          onMouseLeave={() => setHover(false)}
-          disabled={files.length === 0}
-        >
-          📤 Submit {files.length > 0 ? `(${files.length} file${files.length > 1 ? 's' : ''})` : ''}
-        </button>
-        {alert && <div style={styles.alert(dark)}>{alert}</div>}
-        <div style={{ marginTop: '1rem' }}>
-          <button
-            onClick={() => navigate('/documents')}
-            style={styles.button(dark, hover)}
-            onMouseEnter={() => setHover(true)}
-            onMouseLeave={() => setHover(false)}
-          >
-            📄 View My Documents
-          </button>
-        </div>
+            <div style={{ width: '100%', maxWidth: 400 }}>
+              <input
+                id="firstName"
+                name="firstName"
+                type="text"
+                placeholder="First Name"
+                value={first}
+                onChange={e => setFirst(e.target.value)}
+                style={styles.input(dark, !!firstError)}
+                aria-label="First Name"
+                aria-invalid={!!firstError}
+                aria-describedby={firstError ? 'first-error' : undefined}
+                onBlur={() => setSubmitAttempted(true)}
+                className="mb-2 w-full rounded px-3 py-2 text-base"
+              />
+              {firstError && <div id="first-error" style={{ color: 'red', fontSize: '0.95rem', marginBottom: 4 }}>{firstError}</div>}
+              <input
+                id="lastName"
+                name="lastName"
+                type="text"
+                placeholder="Last Name"
+                value={last}
+                onChange={e => setLast(e.target.value)}
+                style={styles.input(dark, !!lastError)}
+                aria-label="Last Name"
+                aria-invalid={!!lastError}
+                aria-describedby={lastError ? 'last-error' : undefined}
+                onBlur={() => setSubmitAttempted(true)}
+                className="mb-2 w-full rounded px-3 py-2 text-base"
+              />
+              {lastError && <div id="last-error" style={{ color: 'red', fontSize: '0.95rem', marginBottom: 4 }}>{lastError}</div>}
+              <FileUpload
+                files={files}
+                onFilesChange={setFiles}
+                dark={dark}
+                multiple={true}
+                maxFiles={5}
+                maxSizeMB={10}
+              />
+              {filesError && <div style={{ color: 'red', fontSize: '0.95rem', marginBottom: 4 }}>{filesError}</div>}
+              <textarea
+                id="notes"
+                name="notes"
+                rows={4}
+                placeholder="Notes (optional)"
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                style={styles.textarea(dark)}
+                aria-label="Notes (optional)"
+                className="mb-2 w-full rounded px-3 py-2 text-base"
+              />
+              {/* Alert/Error/Success Message */}
+              {alert && (
+                <div style={{ color: alert.includes('success') ? 'green' : 'red', fontWeight: 500, marginBottom: 8 }} aria-live="assertive" role="alert">
+                  {alert}
+                  {alert.includes('internet') && <div>Tip: Check your connection or try again later.</div>}
+                </div>
+              )}
+              {/* Loading/progress indicator */}
+              {loading && (
+                <div style={{ width: '100%', margin: '8px 0' }}>
+                  <div className="w-full bg-gray-200 rounded h-2">
+                    <div className="bg-blue-600 h-2 rounded" style={{ width: '100%', transition: 'width 0.3s' }} role="progressbar" aria-valuenow={100} aria-valuemin={0} aria-valuemax={100} />
+                  </div>
+                  <div style={{ textAlign: 'center', fontSize: 12, color: dark ? '#bbaed6' : '#4F2683', marginTop: 2 }}>Submitting...</div>
+                </div>
+              )}
+              {/* Submit and Retry Buttons */}
+              <button
+                onClick={handleSubmit}
+                style={{ ...styles.button(dark, hover), width: '100%', fontSize: 18, padding: '1rem', marginTop: 8, borderRadius: 10, touchAction: 'manipulation' }}
+                onMouseEnter={() => setHover(true)}
+                onMouseLeave={() => setHover(false)}
+                disabled={loading || files.length === 0}
+                aria-busy={loading}
+                aria-label="Submit Dissertation"
+                className="mb-2"
+              >
+                {loading ? 'Submitting...' : `Submit${files.length > 0 ? ` (${files.length} file${files.length > 1 ? 's' : ''})` : ''}`}
+              </button>
+              {retry && (
+                <button
+                  type="button"
+                  onClick={handleRetry}
+                  style={{ ...styles.button(dark, false), background: '#f1c40f', color: '#201436', width: '100%', fontSize: 18, padding: '1rem', borderRadius: 10, marginTop: 4, touchAction: 'manipulation' }}
+                  aria-label="Retry submission"
+                >
+                  Retry
+                </button>
+              )}
+              <button
+                onClick={() => navigate('/documents')}
+                style={{ ...styles.button(dark, hover), width: '100%', fontSize: 18, padding: '1rem', borderRadius: 10, marginTop: 8, touchAction: 'manipulation' }}
+                onMouseEnter={() => setHover(true)}
+                onMouseLeave={() => setHover(false)}
+                aria-label="View My Documents"
+                className="mb-2"
+              >
+                📄 View My Documents
+              </button>
+            </div>
           </>
         )}
+      </div>
+      {/* Mobile & accessibility tips (now below the form, centered horizontally) */}
+      <div className="mt-4 text-xs text-gray-500" aria-live="polite" style={{ textAlign: 'center', marginTop: 24, maxWidth: 400, width: '100%' }}>
+        <div>Optimized for mobile and desktop. Use keyboard navigation to tab through fields.</div>
+        <div>Touch-friendly buttons. Screen reader friendly. All errors and progress are announced.</div>
       </div>
     </div>
   );

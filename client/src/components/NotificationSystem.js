@@ -48,6 +48,9 @@ const NotificationSystem = ({ dark, onOpenDocument, onNotificationUpdate }) => {
       // Get shown notification IDs for this user from sessionStorage
       const shownKey = `shownNotifications_${currentUser}`;
       const shownIds = JSON.parse(sessionStorage.getItem(shownKey) || '[]');
+      // Get persistently read notification IDs for this user from localStorage
+      const readKey = `readNotifications_${currentUser}`;
+      const readIds = JSON.parse(localStorage.getItem(readKey) || '[]');
       
       // Filter notifications based on user role and target stage
       const userNotifications = storedNotifications.filter(notification => {
@@ -64,7 +67,9 @@ const NotificationSystem = ({ dark, onOpenDocument, onNotificationUpdate }) => {
           return true;
         }
         return false;
-      });
+      })
+      // Filter out notifications that have been persistently read
+      .filter(notification => !readIds.includes(notification.id));
       
       // Only show notifications that have not been shown in this session
       const newNotifications = userNotifications.filter(notification =>
@@ -151,12 +156,12 @@ const NotificationSystem = ({ dark, onOpenDocument, onNotificationUpdate }) => {
     return () => clearInterval(workflowInterval);
   }, [onNotificationUpdate, notificationCounts]);
 
-  // Auto-remove notifications after 15 seconds
+  // Auto-remove notifications after 5 seconds
   useEffect(() => {
     const timeouts = notifications.map(notification => {
       return setTimeout(() => {
         removeNotification(notification.id); // Remove notification after timeout
-      }, 15000); // 15 second timeout
+      }, 5000); // 5 second timeout
     });
 
     return () => timeouts.forEach(timeout => clearTimeout(timeout)); // Cleanup timeouts on unmount
@@ -181,6 +186,13 @@ const NotificationSystem = ({ dark, onOpenDocument, onNotificationUpdate }) => {
       total: Math.max(0, prev.total - 1),
       unread: Math.max(0, prev.unread - 1)
     }));
+    // Persistently mark as read
+    const currentUser = atob(sessionStorage.getItem('authUser') || '');
+    const readKey = `readNotifications_${currentUser}`;
+    const readIds = JSON.parse(localStorage.getItem(readKey) || '[]');
+    if (!readIds.includes(id)) {
+      localStorage.setItem(readKey, JSON.stringify([...readIds, id]));
+    }
   };
 
   /**
@@ -204,7 +216,7 @@ const NotificationSystem = ({ dark, onOpenDocument, onNotificationUpdate }) => {
     if (onOpenDocument && notification.filename) {
       onOpenDocument(notification.filename); // Call parent callback to open document
     }
-    removeNotification(notification.id); // Remove notification after click
+    removeNotification(notification.id); // Remove notification after click and mark as read
   };
 
   /**

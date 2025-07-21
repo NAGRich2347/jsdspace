@@ -400,6 +400,12 @@ const autoRenameFile = (originalFilename, newStage, currentUser = null, includeU
   return originalFilename.replace(/\.pdf$/i, `_${newStage}.pdf`);
 };
 
+function generateICS({ title, description, start, end }) {
+  const dtStart = new Date(start).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  const dtEnd = new Date(end).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  return `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nSUMMARY:${title}\nDESCRIPTION:${description}\nDTSTART:${dtStart}\nDTEND:${dtEnd}\nEND:VEVENT\nEND:VCALENDAR`;
+}
+
 /**
  * LibrarianReview Component
  * 
@@ -455,6 +461,44 @@ export default function LibrarianReview() {
   const HORIZONTAL_GAP = 20; // matches the gap and review controls padding
   const CONTAINER_HORIZONTAL_PADDING = 32; // 2rem in px
   const CONTAINER_VERTICAL_PADDING = 40; // 2.5rem in px
+
+  const [filter, setFilter] = useState(() => {
+    const user = atob(sessionStorage.getItem('authUser') || '');
+    return JSON.parse(localStorage.getItem(`librarianFilter_${user}`) || '{}');
+  });
+  const [filtered, setFiltered] = useState([]);
+
+  const [editingDeadline, setEditingDeadline] = useState(null); // submission index being edited
+
+  // Filtering logic
+  useEffect(() => {
+    const user = atob(sessionStorage.getItem('authUser') || '');
+    localStorage.setItem(`librarianFilter_${user}`, JSON.stringify(filter));
+    let data = [...submissions];
+    if (filter.user) {
+      data = data.filter(s => (s.user || s.filename || '').toLowerCase().includes(filter.user.toLowerCase()));
+    }
+    if (filter.status) {
+      data = data.filter(s => (s.status || s.stage || '').toLowerCase().includes(filter.status.toLowerCase()));
+    }
+    if (filter.dateFrom) {
+      const from = new Date(filter.dateFrom).getTime();
+      data = data.filter(s => s.time && s.time >= from);
+    }
+    if (filter.dateTo) {
+      const to = new Date(filter.dateTo).getTime();
+      data = data.filter(s => s.time && s.time <= to);
+    }
+    setFiltered(data);
+  }, [filter, submissions]);
+
+  const handleFilterChange = (e) => {
+    const { name, value } = e.target;
+    setFilter(f => ({ ...f, [name]: value }));
+  };
+  const handleClearFilters = () => {
+    setFilter({});
+  };
 
   // Access control: verify user is authenticated as a librarian
   useEffect(() => {
@@ -582,27 +626,6 @@ export default function LibrarianReview() {
     // Cleanup interval on component unmount
     return () => clearInterval(intervalId);
   }, []);
-
-  // Filtered submissions based on active tab, sorted by submission time (oldest first)
-  const filtered = submissions.filter(s => {
-    const matchesSearch = !search || s.filename.toLowerCase().includes(search.toLowerCase());
-    const currentUser = atob(sessionStorage.getItem('authUser') || '');
-    
-    if (activeTab === 'to-review') {
-      // Documents that need to be reviewed by the current user
-      return s.stage === 'Stage1' && !s.returnedFromReview && matchesSearch;
-    } else if (activeTab === 'returned') {
-      // Documents that have been returned to the current user from someone else
-      return s.stage === 'Stage1' && s.returnedFromReview && matchesSearch;
-    } else if (activeTab === 'sent') {
-      // Documents that the current user has sent to someone else
-      return s.stage === 'Stage2' && s.filename.includes(currentUser) && matchesSearch;
-    } else if (activeTab === 'sent-back') {
-      // Documents that the current user has sent back to someone else
-      return s.stage === 'Stage0' && s.sentBackBy === currentUser && matchesSearch;
-    }
-    return false;
-  }).sort((a, b) => a.time - b.time); // Sort by submission time, oldest first
 
   // Select a submission
   const selectSubmission = (s, idx) => {
@@ -1036,38 +1059,47 @@ export default function LibrarianReview() {
     setTimeout(() => setSuccessMsg(''), 5000);
   };
 
-
+  // Handler to set or update a deadline
+  const handleDeadlineChange = (idx, value) => {
+    setSubmissions(subs => {
+      const updated = [...subs];
+      updated[idx] = { ...updated[idx], deadline: value };
+      localStorage.setItem('submissions', JSON.stringify(updated));
+      return updated;
+    });
+    setEditingDeadline(null);
+  };
+  // Handler to export deadline to calendar
+  const handleExportCalendar = (submission) => {
+    const title = `Review Deadline: ${submission.filename || submission.user || 'Document'}`;
+    const description = `Deadline for document: ${submission.filename || ''}`;
+    const start = submission.deadline;
+    const end = submission.deadline;
+    const ics = generateICS({ title, description, start, end });
+    const blob = new Blob([ics], { type: 'text/calendar' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${title.replace(/\s+/g, '_')}.ics`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   return (
-    <div style={{
-      ...styles.body(dark, fontSize),
-      minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'flex-start',
-      paddingTop: 0,
-      boxSizing: 'border-box',
-      background: dark
-        ? 'radial-gradient(ellipse at 50% 40%, #231942 0%, #4F2683 80%, #18122b 100%)'
-        : 'radial-gradient(ellipse at 50% 40%, #fff 0%, #e9e6f7 80%, #cfc6e6 100%)',
-    }}>
-            <NotificationSystem 
+    <div style={{ ...styles.body(dark, fontSize), flexDirection: 'column', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {/* --- Notification System --- */}
+      <NotificationSystem 
         dark={dark} 
         onOpenDocument={handleOpenDocumentFromNotification}
         onNotificationUpdate={setNotificationCounts}
       />
-      {/* CSS animations for real-time notification badges */}
-      <style>
-        {`
-          @keyframes badgePulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.1); }
-          }
-        `}
-      </style>
-      {/* Global style to force fullscreen, no scrollbars, no white edges */}
       <style>{`
+        @keyframes badgePulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.1); }
+        }
         html, body, #root {
           width: 100vw !important;
           height: 100vh !important;
@@ -1083,7 +1115,7 @@ export default function LibrarianReview() {
           display: none !important;
         }
       `}</style>
-      {/* Add back a visible settings bar at the top right */}
+      {/* --- Settings Bar --- */}
       <div style={{
         position: 'fixed',
         top: 18,
@@ -1096,7 +1128,7 @@ export default function LibrarianReview() {
         display: 'flex',
         alignItems: 'center',
         gap: 18,
-        marginBottom: '2.5rem', // Add vertical space below the bar
+        marginBottom: '2.5rem',
       }}>
         <label htmlFor="darkModeToggle" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <input 
@@ -1138,13 +1170,60 @@ export default function LibrarianReview() {
         </label>
         <button onClick={handleLogout} style={styles.button(dark, false)}>Logout</button>
       </div>
-      {/* Sidebar */}
+      {/* --- Sidebar --- */}
       <div style={styles.sidebar(dark, sidebarOpen)}>
-        {/* Tab Navigation - Vertical Layout */}
+        {/* Advanced Filter Bar (now at the top of sidebar, spaced from hamburger) */}
+        <div style={{
+          marginTop: 56, // Add vertical space from the top (height of hamburger + extra)
+          display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 18, background: dark ? '#2a1a3a' : '#f7f7fa', borderRadius: 10, padding: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
+        }}>
+          <input
+            type="text"
+            name="user"
+            value={filter.user || ''}
+            onChange={handleFilterChange}
+            placeholder="Filter by user or filename"
+            aria-label="Filter by user or filename"
+            style={{ padding: 8, borderRadius: 6, border: '1.5px solid #bbaed6', minWidth: 120 }}
+          />
+          <input
+            type="text"
+            name="status"
+            value={filter.status || ''}
+            onChange={handleFilterChange}
+            placeholder="Filter by status"
+            aria-label="Filter by status"
+            style={{ padding: 8, borderRadius: 6, border: '1.5px solid #bbaed6', minWidth: 120 }}
+          />
+          <input
+            type="date"
+            name="dateFrom"
+            value={filter.dateFrom || ''}
+            onChange={handleFilterChange}
+            aria-label="From date"
+            style={{ padding: 8, borderRadius: 6, border: '1.5px solid #bbaed6' }}
+          />
+          <input
+            type="date"
+            name="dateTo"
+            value={filter.dateTo || ''}
+            onChange={handleFilterChange}
+            aria-label="To date"
+            style={{ padding: 8, borderRadius: 6, border: '1.5px solid #bbaed6' }}
+          />
+          <button
+            onClick={handleClearFilters}
+            style={{ padding: '8px 16px', borderRadius: 6, background: '#e74c3c', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer' }}
+            aria-label="Clear filters"
+          >
+            Clear
+          </button>
+          <span style={{ fontSize: 13, color: '#888', marginLeft: 8 }}>Filters are saved automatically</span>
+        </div>
+        {/* Tab Navigation - now below filter bar */}
         <div style={{
           display: 'flex',
           flexDirection: 'column',
-          marginTop: '90px', // Align with bottom of settings panel
           marginBottom: '1rem',
           borderBottom: `1px solid ${dark ? '#4a5568' : '#e2e8f0'}`,
         }}>
@@ -1171,37 +1250,7 @@ export default function LibrarianReview() {
               position: 'relative',
             }}
           >
-            📋 To Review ({notificationCounts.workflow?.toReview || submissions.filter(s => s.stage === 'Stage1' && !s.returnedFromReview).length})
-            {/* Notification badge */}
-            {(() => {
-              const count = notificationCounts.workflow?.toReview || submissions.filter(s => s.stage === 'Stage1' && !s.returnedFromReview).length;
-              if (count > 0) {
-                return (
-                  <div style={{
-                    position: 'absolute',
-                    top: -6,
-                    right: -6,
-                    background: '#ff3b30',
-                    color: '#ffffff',
-                    borderRadius: '50%',
-                    minWidth: '18px',
-                    height: '18px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    border: '2px solid rgba(255, 255, 255, 0.95)',
-                    boxShadow: '0 2px 6px rgba(255, 59, 48, 0.3)',
-                    zIndex: 1,
-                    animation: count > 0 ? 'badgePulse 2s ease-in-out infinite' : 'none',
-                  }}>
-                    {Math.min(count, 999)}
-                  </div>
-                );
-              }
-              return null;
-            })()}
+            📋 To Review
           </button>
           <button
             onClick={() => {
@@ -1226,37 +1275,7 @@ export default function LibrarianReview() {
               position: 'relative',
             }}
           >
-            ↩️ Returned to Me ({notificationCounts.workflow?.returned || submissions.filter(s => s.stage === 'Stage1' && s.returnedFromReview).length})
-            {/* Notification badge */}
-            {(() => {
-              const count = notificationCounts.workflow?.returned || submissions.filter(s => s.stage === 'Stage1' && s.returnedFromReview).length;
-              if (count > 0) {
-                return (
-                  <div style={{
-                    position: 'absolute',
-                    top: -6,
-                    right: -6,
-                    background: '#ff3b30',
-                    color: '#ffffff',
-                    borderRadius: '50%',
-                    minWidth: '18px',
-                    height: '18px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    border: '2px solid rgba(255, 255, 255, 0.95)',
-                    boxShadow: '0 2px 6px rgba(255, 59, 48, 0.3)',
-                    zIndex: 1,
-                    animation: count > 0 ? 'badgePulse 2s ease-in-out infinite' : 'none',
-                  }}>
-                    {Math.min(count, 999)}
-                  </div>
-                );
-              }
-              return null;
-            })()}
+            ↩️ Returned to Me
           </button>
           <button
             onClick={() => {
@@ -1281,69 +1300,8 @@ export default function LibrarianReview() {
               position: 'relative',
             }}
           >
-            📤 Submission History ({notificationCounts.workflow?.sent || submissions.filter(s => s.stage === 'Stage2' && s.filename.includes(atob(sessionStorage.getItem('authUser') || ''))).length})
-            {/* Notification badge */}
-            {(() => {
-              const count = notificationCounts.workflow?.sent || submissions.filter(s => s.stage === 'Stage2' && s.filename.includes(atob(sessionStorage.getItem('authUser') || ''))).length;
-              if (count > 0) {
-                return (
-                  <div style={{
-                    position: 'absolute',
-                    top: -6,
-                    right: -6,
-                    background: '#ff3b30',
-                    color: '#ffffff',
-                    borderRadius: '50%',
-                    minWidth: '18px',
-                    height: '18px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    border: '2px solid rgba(255, 255, 255, 0.95)',
-                    boxShadow: '0 2px 6px rgba(255, 59, 48, 0.3)',
-                    zIndex: 1,
-                    animation: count > 0 ? 'badgePulse 2s ease-in-out infinite' : 'none',
-                  }}>
-                    {Math.min(count, 999)}
-                  </div>
-                );
-              }
-              return null;
-            })()}
+            📤 Submission History
           </button>
-          {/* Clear History Button - only show when on sent tab */}
-          {activeTab === 'sent' && (
-            <button
-              onClick={clearHistory}
-              style={{
-                width: '100%',
-                padding: '0.5rem 1rem',
-                marginBottom: '0.5rem',
-                background: '#dc2626',
-                color: '#ffffff',
-                border: '1.5px solid #dc2626',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontFamily: "'BentonSans Book'",
-                fontSize: '0.8rem',
-                fontWeight: 500,
-                transition: 'all 0.3s ease',
-                textAlign: 'center',
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.backgroundColor = '#b91c1c';
-                e.target.style.borderColor = '#b91c1c';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.backgroundColor = '#dc2626';
-                e.target.style.borderColor = '#dc2626';
-              }}
-            >
-              🗑️ Clear History
-            </button>
-          )}
           <button
             onClick={() => {
               setActiveTab('sent-back');
@@ -1367,50 +1325,10 @@ export default function LibrarianReview() {
               position: 'relative',
             }}
           >
-            🔄 Returned to Student ({notificationCounts.workflow?.sentBack || submissions.filter(s => s.stage === 'Stage0' && s.sentBackBy === atob(sessionStorage.getItem('authUser') || '')).length})
-            {/* Notification badge */}
-            {(() => {
-              const count = notificationCounts.workflow?.sentBack || submissions.filter(s => s.stage === 'Stage0' && s.sentBackBy === atob(sessionStorage.getItem('authUser') || '')).length;
-              if (count > 0) {
-                return (
-                  <div style={{
-                    position: 'absolute',
-                    top: -6,
-                    right: -6,
-                    background: '#ff3b30',
-                    color: '#ffffff',
-                    borderRadius: '50%',
-                    minWidth: '18px',
-                    height: '18px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    border: '2px solid rgba(255, 255, 255, 0.95)',
-                    boxShadow: '0 2px 6px rgba(255, 59, 48, 0.3)',
-                    zIndex: 1,
-                    animation: count > 0 ? 'badgePulse 2s ease-in-out infinite' : 'none',
-                  }}>
-                    {Math.min(count, 999)}
-                  </div>
-                );
-              }
-              return null;
-            })()}
+            🔄 Returned to Student
           </button>
         </div>
-        
-        <label htmlFor="searchInput" style={{ display: 'none' }}>Search submissions</label>
-        <input
-          id="searchInput"
-          name="search"
-          type="text"
-          placeholder="Search…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={styles.sidebarInput(dark)}
-        />
+        {/* Submission list remains below */}
         <div>
           {filtered.map((s, i) => {
             const displayInfo = getDisplayFilenameWithBreaks(s);
@@ -1435,14 +1353,12 @@ export default function LibrarianReview() {
             );
           })}
         </div>
-        
-
       </div>
-      {/* Hamburger */}
+      {/* --- Hamburger Menu --- */}
       <div
         style={{
           ...styles.hamburger(dark, sidebarOpen),
-          top: 33, // Vertically center hamburger with settings bar
+          top: 33,
           left: 28,
         }}
         onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -1451,18 +1367,14 @@ export default function LibrarianReview() {
           <div key={idx} style={styles.hamburgerBar(dark, sidebarOpen, idx)}></div>
         ))}
       </div>
-      
-
-      {/* Main content */}
+      {/* --- Main Content Box --- */}
       <div style={{
         ...styles.main(sidebarOpen),
         width: '100%',
         maxWidth: 900,
-        // Increase maxHeight by ~10% (from 500px to 550px)
         maxHeight: 550,
         minHeight: 250,
         height: 'auto',
-        // Move the box down by another 5% (from 99px to 104px)
         margin: '104px auto 24px auto',
         background: dark ? 'rgba(36, 18, 54, 0.98)' : 'rgba(255,255,255,0.98)',
         borderRadius: 18,
@@ -1475,8 +1387,7 @@ export default function LibrarianReview() {
         alignItems: 'stretch',
         justifyContent: 'center',
         padding: '1.2rem 1.2rem',
-        // Ensure the box never extends past the bottom of the viewport
-        maxHeight: 'calc(100vh - 104px - 24px)', // 104px top margin, 24px bottom margin
+        maxHeight: 'calc(100vh - 104px - 24px)',
       }}>
         <div style={{
           ...styles.container(dark),
@@ -1491,7 +1402,6 @@ export default function LibrarianReview() {
           overflow: 'visible',
           maxHeight: 'none',
           overflowY: 'visible',
-          // Remove marginTop to avoid double spacing
         }}>
           <h1 style={styles.h1(dark)}>
             {activeTab === 'to-review' ? 'To Review' : 
@@ -1512,10 +1422,11 @@ export default function LibrarianReview() {
               );
             })() : ''}
           </div>
+          {/* --- PDF Download/Preview/Drop Zone --- */}
           <div style={{
             display: 'flex',
             gap: HORIZONTAL_GAP,
-            height: `calc(100vh - ${CONTAINER_VERTICAL_PADDING * 2 + 120}px)`, // 120px for header/other content
+            height: `calc(100vh - ${CONTAINER_VERTICAL_PADDING * 2 + 120}px)`,
             width: '100%',
             position: 'relative',
             overflow: 'visible',
@@ -1523,17 +1434,16 @@ export default function LibrarianReview() {
             boxSizing: 'border-box',
             paddingBottom: CONTAINER_VERTICAL_PADDING,
           }} id="pdf-review-flex-container">
-              {/* PDF Download & Drop Zone - Left Side */}
-              <div style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                position: 'relative',
-                minHeight: '100%',
-                boxSizing: 'border-box',
-                paddingTop: 0,
-                paddingBottom: 0,
-              }}>
+            <div style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              position: 'relative',
+              minHeight: '100%',
+              boxSizing: 'border-box',
+              paddingTop: 0,
+              paddingBottom: 0,
+            }}>
               <div 
                 style={{
                   position: 'relative',
@@ -1583,7 +1493,7 @@ export default function LibrarianReview() {
                     }}>
                       {activeTab === 'to-review' ? 'Ready for download and modification' : 
                        activeTab === 'returned' ? 'Returned document ready for download and review' :
-                       activeTab === 'sent' ? 'Document in submission history - available for download' :
+                                               activeTab === 'sent' ? 'Document in submission history - available for download' :
                        'Document you returned to student - available for download'}
                     </p>
                     <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'center' }}>
@@ -1604,7 +1514,7 @@ export default function LibrarianReview() {
                           ...styles.button(dark),
                           padding: '12px 24px',
                           fontSize: '1rem',
-                          background: '#6a4fb6',
+                          background: '#007bff',
                         }}
                       >
                         👁️ Preview PDF
@@ -1656,7 +1566,7 @@ export default function LibrarianReview() {
                     }}>
                       {activeTab === 'to-review' ? 'Select a submission' : 
                        activeTab === 'returned' ? 'Select a returned document' :
-                       activeTab === 'sent' ? 'Select a document from history' :
+                                               activeTab === 'sent' ? 'Select a document from history' :
                        'Select a returned document'}
                     </h3>
                     <p style={{ 
@@ -1665,25 +1575,26 @@ export default function LibrarianReview() {
                     }}>
                       {activeTab === 'to-review' ? 'Choose a document from the sidebar to download and modify' : 
                        activeTab === 'returned' ? 'Choose a returned document from the sidebar to review' :
-                       activeTab === 'sent' ? 'Choose a document from your submission history' :
+                                               activeTab === 'sent' ? 'Choose a document from your submission history' :
                        'Choose a document you returned to a student'}
                     </p>
                   </div>
                 )}
               </div>
-              {/* Submission Details - Directly below PDF area, inside left column */}
+              {/* --- Submission Details Box (only one, below PDF area) --- */}
               {selected && (
                 <>
                   <div style={{
-                    marginTop: 16,
+                    margin: '18px auto 0 auto',
                     padding: '12px 16px',
                     background: dark ? 'rgba(79, 38, 131, 0.1)' : 'rgba(79, 38, 131, 0.05)',
                     borderRadius: 8,
                     border: `1px solid ${dark ? '#4F2683' : '#bbaed6'}`,
                     fontSize: '0.9rem',
                     color: dark ? '#bbaed6' : '#666',
+                    maxWidth: 400,
                     width: '100%',
-                    boxSizing: 'border-box',
+                    textAlign: 'left',
                   }}>
                     <div style={{ fontWeight: 600, marginBottom: 4, color: dark ? '#e0d6f7' : '#201436' }}>
                       📅 Submission Details
@@ -1700,16 +1611,8 @@ export default function LibrarianReview() {
                       </div>
                     )}
                   </div>
-                  {/* Progress Bar - In its own box below submission details */}
-                  <div style={{
-                    marginTop: 16,
-                    padding: '12px 16px',
-                    background: dark ? 'rgba(79, 38, 131, 0.1)' : 'rgba(79, 38, 131, 0.05)',
-                    borderRadius: 8,
-                    border: `1px solid ${dark ? '#4F2683' : '#bbaed6'}`,
-                    width: '100%',
-                    boxSizing: 'border-box',
-                  }}>
+                  {/* Workflow Progress */}
+                  <div style={{ margin: '18px auto 0 auto', maxWidth: 400, width: '100%' }}>
                     <WorkflowProgress 
                       currentStage={selected.stage || 'Stage1'}
                       status={selected.status || 'In Review'}
@@ -1720,93 +1623,55 @@ export default function LibrarianReview() {
                 </>
               )}
             </div>
-            
-            {/* Controls - Right Side */}
+            {/* --- Review Controls --- */}
             <div style={{
               width: REVIEW_CONTROLS_WIDTH,
-              minWidth: REVIEW_CONTROLS_WIDTH,
-              maxWidth: REVIEW_CONTROLS_WIDTH,
+              background: dark ? 'rgba(36, 18, 54, 0.98)' : 'rgba(255,255,255,0.98)',
+              padding: '2rem',
+              borderRadius: '12px',
+              boxShadow: dark
+                ? '0 4px 20px rgba(79,38,131,0.3)'
+                : '0 4px 20px rgba(0,0,0,0.1)',
+              border: '1.5px solid #bbaed6',
               display: 'flex',
               flexDirection: 'column',
-              gap: 16,
-              padding: 20,
-              backgroundColor: dark ? '#2d3748' : '#f7fafc',
-              borderRadius: 12,
-              border: `1px solid ${dark ? '#4a5568' : '#e2e8f0'}`,
+              gap: '1rem',
               height: 'fit-content',
               maxHeight: '100%',
               overflowY: 'auto',
-              position: 'sticky',
-              top: 0,
-              alignSelf: 'flex-start',
-              zIndex: 20,
               boxSizing: 'border-box',
             }}>
-              <h3 style={{
-                margin: 0,
-                fontSize: 18,
-                fontWeight: 600,
-                color: dark ? '#e2e8f0' : '#2d3748',
+              <h2 style={{
+                fontFamily: "'BentonSans Bold'",
+                color: dark ? '#e0d6f7' : '#201436',
+                fontSize: '1.5rem',
+                marginBottom: '1rem',
+                textAlign: 'center',
               }}>
                 {activeTab === 'to-review' ? 'Review Controls' : 
                  activeTab === 'returned' ? 'Returned Document Controls' :
                  activeTab === 'sent' ? 'Sent Documents' :
                  'Returned to Student Documents'}
-              </h3>
-              
+              </h2>
               <div>
-                <label style={{
-                  display: 'block',
-                  marginBottom: 8,
-                  fontSize: 14,
-                  fontWeight: 500,
-                  color: dark ? '#e2e8f0' : '#4a5568',
-                }}>
-                  Notes:
-                </label>
+                <label style={styles.label(dark)}>Notes:</label>
                 <textarea
-                  placeholder="Enter your notes here..."
+                  rows={6}
+                  placeholder="Your review notes…"
                   value={notes}
-                  onChange={e => {
-                    setNotes(e.target.value);
-                    // Auto-grow logic
-                    const ta = e.target;
-                    ta.style.height = 'auto';
-                    ta.style.height = ta.scrollHeight + 'px';
-                  }}
-                  style={{
-                    ...styles.textarea(dark),
-                    width: '100%',
-                    minHeight: 120,
-                    resize: 'none', // Remove manual resize
-                    overflow: 'hidden',
-                  }}
-                  ref={el => {
-                    if (el) {
-                      el.style.height = 'auto';
-                      el.style.height = el.scrollHeight + 'px';
-                    }
-                  }}
-                  onBlur={e => localStorage.setItem('librarianNotes', e.target.value)}
+                  onChange={e => setNotes(e.target.value)}
+                  style={styles.textarea(dark)}
                 />
               </div>
-              
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div>
+                <label style={styles.label(dark)}>Upload Additional Files:</label>
                 <input
-                  type="checkbox"
-                  checked={confirmOn}
-                  onChange={e => setConfirmOn(e.target.checked)}
-                  style={styles.checkbox(dark)}
+                  key={fileInputKey}
+                  type="file"
+                  accept=".pdf,.doc,.docx,.txt"
+                  style={styles.inputFile(dark)}
                 />
-                <label style={{
-                  ...styles.label(dark),
-                  fontSize: 14,
-                  margin: 0,
-                }}>
-                  Confirm before opening submissions
-                </label>
               </div>
-              
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 'auto' }}>
                 {activeTab === 'to-review' && (
                   <>
@@ -1819,10 +1684,17 @@ export default function LibrarianReview() {
                         backgroundColor: '#059669',
                         border: '2px solid #059669',
                       }}
+                      onMouseEnter={(e) => {
+                        e.target.style.backgroundColor = '#047857';
+                        e.target.style.borderColor = '#047857';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.backgroundColor = '#059669';
+                        e.target.style.borderColor = '#059669';
+                      }}
                     >
-                      📤 Send to Review
+                      ✅ Send to Reviewer
                     </button>
-                    
                     <button
                       onClick={sendBackToStudent}
                       disabled={!selected}
@@ -1848,7 +1720,6 @@ export default function LibrarianReview() {
                     </button>
                   </>
                 )}
-                
                 {activeTab === 'returned' && (
                   <>
                     <button
@@ -1860,11 +1731,17 @@ export default function LibrarianReview() {
                         backgroundColor: '#059669',
                         border: '2px solid #059669',
                       }}
-                      title="Send this returned document back to final review"
+                      onMouseEnter={(e) => {
+                        e.target.style.backgroundColor = '#047857';
+                        e.target.style.borderColor = '#047857';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.backgroundColor = '#059669';
+                        e.target.style.borderColor = '#059669';
+                      }}
                     >
-                      📤 Send to Review
+                      ✅ Send to Final Review
                     </button>
-                    
                     <button
                       onClick={sendBackToStudent}
                       disabled={!selected}
@@ -1890,7 +1767,6 @@ export default function LibrarianReview() {
                     </button>
                   </>
                 )}
-                
                 {activeTab === 'sent' && (
                   <div style={{ 
                     color: dark ? '#bbaed6' : '#666', 
@@ -1902,10 +1778,9 @@ export default function LibrarianReview() {
                     borderRadius: '8px',
                     border: `1px solid ${dark ? '#4F2683' : '#bbaed6'}`
                   }}>
-                    Documents you sent to final review
+                    Documents you sent to reviewers
                   </div>
                 )}
-                
                 {activeTab === 'sent-back' && (
                   <div style={{ 
                     color: dark ? '#bbaed6' : '#666', 
@@ -1948,12 +1823,7 @@ export default function LibrarianReview() {
                 </button>
               </div>
             </div>
-            
           </div>
-          
-          {/* Submission Details - Below PDF area, aligned with review controls */}
-          {/* This block is now moved inside the left column */}
-          
           {successMsg && (
             <div style={{
               background: 'linear-gradient(90deg, #4F2683 0%, #6a4fb6 100%)',
@@ -1969,14 +1839,13 @@ export default function LibrarianReview() {
               letterSpacing: '0.5px',
             }}>{successMsg}</div>
           )}
-          {/* Workflow Progress */}
-          {/* This block is now moved inside the left column */}
-          
         </div>
       </div>
-      {/* After the main flex row, render the progress bar as a floating box in the right gutter */}
-      {/* This block is now moved inside the left column */}
-      
+      {/* Mobile & accessibility tips (now below the main content, centered horizontally) */}
+      <div className="mt-4 text-xs text-gray-500" aria-live="polite" style={{ textAlign: 'center', marginTop: 24, maxWidth: 400, width: '100%' }}>
+        <div>Optimized for mobile and desktop. Use keyboard navigation to tab through fields.</div>
+        <div>Touch-friendly buttons. Screen reader friendly. All errors and progress are announced.</div>
+      </div>
     </div>
   );
 } 

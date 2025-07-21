@@ -7,6 +7,13 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import WorkflowProgress from './WorkflowProgress';
 
+function generateICS({ title, description, start, end }) {
+  // start/end: JS Date or ISO string
+  const dtStart = new Date(start).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  const dtEnd = new Date(end).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  return `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nSUMMARY:${title}\nDESCRIPTION:${description}\nDTSTART:${dtStart}\nDTEND:${dtEnd}\nEND:VEVENT\nEND:VCALENDAR`;
+}
+
 /**
  * AdminDashboard Component
  * 
@@ -32,6 +39,13 @@ export default function AdminDashboard() {
   
   // Data state management
   const [submissions, setSubmissions] = useState([]); // All submissions and admin logs
+  const [filter, setFilter] = useState(() => {
+    // Load saved filter from localStorage
+    const user = atob(sessionStorage.getItem('authUser') || '');
+    return JSON.parse(localStorage.getItem(`adminFilter_${user}`) || '{}');
+  });
+  const [filtered, setFiltered] = useState([]);
+  const [editingDeadline, setEditingDeadline] = useState(null); // submission index being edited
   
   // Navigation and utilities
   const navigate = useNavigate(); // React Router navigation hook
@@ -57,6 +71,30 @@ export default function AdminDashboard() {
       document.documentElement.style.fontSize = ''; // Reset font size
     };
   }, [dark, fontSize]);
+
+  // Filtering logic
+  useEffect(() => {
+    // Save filter to localStorage
+    const user = atob(sessionStorage.getItem('authUser') || '');
+    localStorage.setItem(`adminFilter_${user}`, JSON.stringify(filter));
+    // Apply filters
+    let data = [...submissions];
+    if (filter.user) {
+      data = data.filter(s => (s.user || s.username || '').toLowerCase().includes(filter.user.toLowerCase()));
+    }
+    if (filter.status) {
+      data = data.filter(s => (s.status || s.stage || '').toLowerCase().includes(filter.status.toLowerCase()));
+    }
+    if (filter.dateFrom) {
+      const from = new Date(filter.dateFrom).getTime();
+      data = data.filter(s => s.time && s.time >= from);
+    }
+    if (filter.dateTo) {
+      const to = new Date(filter.dateTo).getTime();
+      data = data.filter(s => s.time && s.time <= to);
+    }
+    setFiltered(data);
+  }, [filter, submissions]);
 
   // Load submissions and admin logs from localStorage
   useEffect(() => {
@@ -353,6 +391,35 @@ export default function AdminDashboard() {
     }
   };
 
+  // Handler to set or update a deadline
+  const handleDeadlineChange = (idx, value) => {
+    setSubmissions(subs => {
+      const updated = [...subs];
+      updated[idx] = { ...updated[idx], deadline: value };
+      // Persist to localStorage
+      localStorage.setItem('submissions', JSON.stringify(updated));
+      return updated;
+    });
+    setEditingDeadline(null);
+  };
+  // Handler to export deadline to calendar
+  const handleExportCalendar = (submission) => {
+    const title = `Submission Deadline: ${submission.filename || submission.user || 'Document'}`;
+    const description = `Deadline for document: ${submission.filename || ''}`;
+    const start = submission.deadline;
+    const end = submission.deadline;
+    const ics = generateICS({ title, description, start, end });
+    const blob = new Blob([ics], { type: 'text/calendar' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${title.replace(/\s+/g, '_')}.ics`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   /**
    * AdminDashboard Component - Comprehensive Styling Object
    * 
@@ -468,8 +535,17 @@ export default function AdminDashboard() {
     }),
   };
 
+  // Filter bar handlers
+  const handleFilterChange = (e) => {
+    const { name, value } = e.target;
+    setFilter(f => ({ ...f, [name]: value }));
+  };
+  const handleClearFilters = () => {
+    setFilter({});
+  };
+
   return (
-    <div style={styles.body(dark, fontSize)}>
+    <div style={{ ...styles.body(dark, fontSize), flexDirection: 'column', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {/* Global style to force fullscreen, no scrollbars, no white edges */}
       <style>{`
         html, body, #root {
@@ -565,6 +641,53 @@ export default function AdminDashboard() {
         }}>
           Download buttons are only available for documents that have been approved and published by the final reviewer
         </p>
+        {/* Advanced Filter Bar */}
+        <div style={{
+          display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 18, background: dark ? '#2a1a3a' : '#f7f7fa', borderRadius: 10, padding: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
+        }}>
+          <input
+            type="text"
+            name="user"
+            value={filter.user || ''}
+            onChange={handleFilterChange}
+            placeholder="Filter by user"
+            aria-label="Filter by user"
+            style={{ padding: 8, borderRadius: 6, border: '1.5px solid #bbaed6', minWidth: 120 }}
+          />
+          <input
+            type="text"
+            name="status"
+            value={filter.status || ''}
+            onChange={handleFilterChange}
+            placeholder="Filter by status"
+            aria-label="Filter by status"
+            style={{ padding: 8, borderRadius: 6, border: '1.5px solid #bbaed6', minWidth: 120 }}
+          />
+          <input
+            type="date"
+            name="dateFrom"
+            value={filter.dateFrom || ''}
+            onChange={handleFilterChange}
+            aria-label="From date"
+            style={{ padding: 8, borderRadius: 6, border: '1.5px solid #bbaed6' }}
+          />
+          <input
+            type="date"
+            name="dateTo"
+            value={filter.dateTo || ''}
+            onChange={handleFilterChange}
+            aria-label="To date"
+            style={{ padding: 8, borderRadius: 6, border: '1.5px solid #bbaed6' }}
+          />
+          <button
+            onClick={handleClearFilters}
+            style={{ padding: '8px 16px', borderRadius: 6, background: '#e74c3c', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer' }}
+            aria-label="Clear filters"
+          >
+            Clear
+          </button>
+          <span style={{ fontSize: 13, color: '#888', marginLeft: 8 }}>Filters are saved automatically</span>
+        </div>
         <div style={{ overflowX: 'auto', width: '100%' }}>
           <table style={styles.table(dark)}>
             <thead>
@@ -576,13 +699,15 @@ export default function AdminDashboard() {
                 <th style={styles.th(dark)}>Filename</th>
                 <th style={styles.th(dark)}>Notes</th>
                 <th style={styles.th(dark)}>Actions</th>
+                <th style={styles.th(dark)}>Deadline</th>
+                <th style={styles.th(dark)}>Calendar</th>
               </tr>
             </thead>
             <tbody>
-              {submissions.length === 0 ? (
-                <tr><td colSpan={7} style={styles.td(dark, true)}>No submissions yet.</td></tr>
+              {filtered.length === 0 ? (
+                <tr><td colSpan={9} style={styles.td(dark, true)}>No submissions yet.</td></tr>
               ) : (
-                submissions.map((s, i) => {
+                filtered.map((s, i) => {
                   // Calculate progress percentage based on stage
                   const stages = ['Stage0', 'Stage1', 'Stage2', 'Stage3'];
                   const stageIndex = stages.indexOf(s.stage || 'Stage0');
@@ -709,6 +834,43 @@ export default function AdminDashboard() {
                           </span>
                         )}
                       </td>
+                      <td style={styles.td(dark)}>
+                        {editingDeadline === i ? (
+                          <input
+                            type="datetime-local"
+                            value={s.deadline ? new Date(s.deadline).toISOString().slice(0, 16) : ''}
+                            onChange={e => handleDeadlineChange(i, new Date(e.target.value).toISOString())}
+                            onBlur={() => setEditingDeadline(null)}
+                            style={{ padding: 6, borderRadius: 6, border: '1.5px solid #bbaed6', minWidth: 160 }}
+                            autoFocus
+                            aria-label="Set deadline"
+                          />
+                        ) : (
+                          s.deadline ? (
+                            <span style={{ cursor: 'pointer' }} onClick={() => setEditingDeadline(i)} title="Edit deadline">{new Date(s.deadline).toLocaleString()}</span>
+                          ) : (
+                            <button
+                              onClick={() => setEditingDeadline(i)}
+                              style={{ padding: '4px 10px', borderRadius: 6, background: '#a259e6', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: 13 }}
+                              aria-label="Add deadline"
+                            >
+                              + Add
+                            </button>
+                          )
+                        )}
+                      </td>
+                      <td style={styles.td(dark)}>
+                        {s.deadline && (
+                          <button
+                            onClick={() => handleExportCalendar(s)}
+                            style={{ padding: '4px 10px', borderRadius: 6, background: '#4F2683', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: 13 }}
+                            aria-label="Export deadline to calendar"
+                            title="Export to calendar"
+                          >
+                            📅 Add to Calendar
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   );
                 })
@@ -716,6 +878,11 @@ export default function AdminDashboard() {
             </tbody>
           </table>
         </div>
+      </div>
+      {/* Mobile & accessibility tips (now below the main content, centered horizontally) */}
+      <div className="mt-4 text-xs text-gray-500" aria-live="polite" style={{ textAlign: 'center', marginTop: 24, maxWidth: 400, width: '100%' }}>
+        <div>Optimized for mobile and desktop. Use keyboard navigation to tab through fields.</div>
+        <div>Touch-friendly buttons. Screen reader friendly. All errors and progress are announced.</div>
       </div>
     </div>
   );
